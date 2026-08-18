@@ -1,0 +1,10 @@
+Error: expect(locator).toBeVisible() failed
+
+Locator: locator('#does-not-exist')
+Expected: visible
+Timeout: 1500ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" with timeout 1500ms
+  - waiting for locator('#does-not-exist')
