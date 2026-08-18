@@ -27,6 +27,6 @@ export async function failedTestsFromOutputXml(path) {
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
   const doc = parser.parse(xml);
   const failures = [];
-  collectFailures(doc.robot?.suite, failures);
+  for (const s of asArray(doc.robot?.suite)) collectFailures(s, failures);
   return failures.map((f) => ({ ...f, anchor: extractAnchor(f.message) }));
 }
