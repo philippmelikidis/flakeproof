@@ -1,30 +1,45 @@
 # flakeproof
 
-Ein CI-Werkzeug, das E2E-Testsuiten auf ihre zwei blinden Flecken prüft:
+A CI tool that checks end-to-end test suites for two blind spots that nobody measures today:
 
-- **Blinde Tests** — bleiben grün, obwohl etwas Echtes kaputt ist.
-- **Zickige Tests** — werden rot, obwohl sich nur Kosmetik oder Timing geändert hat („flaky").
+- Blind tests. Something real breaks on the page, but the test stays green because it never actually checked it.
+- Fragile tests. A class name changes, a wrapper div appears, an element loads a second later, and the test goes red although nothing is broken. Everyone calls this flaky.
 
-Dazu verändert es die getestete Seite absichtlich und kontrolliert — echte Änderungen
-(Test muss rot werden), kosmetische Änderungen und Timing-Verzögerungen (Test muss grün
-bleiben) — und misst, ob die Suite richtig reagiert.
+Both problems have the same root cause: how tightly a test is coupled to the DOM. flakeproof measures this by mutating the page under test on purpose, in three controlled ways:
 
-**Phase 1** ist die **Rot-Triage**: Bei rotem Build beantwortet das Werkzeug automatisch,
-ob ein echter Fehler vorliegt oder ein fragiler Test — und schlägt bei Fragilität einen
-nachweislich robusteren Selektor vor.
+| Mutation type | Example | The test must |
+|---|---|---|
+| Semantic | button text changed, link target changed, element removed | go red |
+| Cosmetic | class renamed, wrapper div added, element moved | stay green |
+| Temporal | element appears 800 ms later | stay green |
 
-Framework-agnostisch: Die Mutation läuft im Browser, pro Test-Framework (Playwright,
-Robot Framework, Cypress, Selenium, Puppeteer) genügt ein Mini-Adapter.
+A test that reacts wrongly is caught: green under semantic changes means blind, red under cosmetic or timing changes means fragile.
 
-## Stand
+Phase 1 is red triage. When CI goes red, flakeproof answers the question a human answers by hand today: real bug or fragile test? If the test is fragile, it also proposes a more robust selector and proves the proposal by running it against the cosmetic mutation catalog, instead of guessing.
 
-Design abgestimmt, Umsetzung beginnt mit Phase 0 (zwei Machbarkeits-Spikes).
-Vollständige Spec: [docs/superpowers/specs/2026-08-18-e2e-triage-gate-design.md](docs/superpowers/specs/2026-08-18-e2e-triage-gate-design.md)
+The mutations run inside the browser, not inside the test runner, so the core is framework agnostic. Each test framework (Playwright, Robot Framework, Cypress, Selenium, Puppeteer) only needs a small adapter.
 
-## Struktur
+## Status
+
+Design settled, phase 0 (feasibility spikes) in progress. See the spec in `docs/superpowers/specs/` and the plan in `docs/superpowers/plans/`.
+
+## Development
 
 ```
-docs/superpowers/specs/            Design-Dokumente
-examples/robotframework-testgilde/ Robot-Framework-Suite gegen testgilde.de —
-                                   dient als Testobjekt für Phase 0
+npm install
+npx playwright install chromium
+npm test
+npm run lint
+```
+
+Tests run against a local fixture page, no network needed. The `examples/robotframework-testgilde/` folder contains a Robot Framework suite against a real website that serves as the phase 0 validation target (see its own README).
+
+## Repository layout
+
+```
+src/probe/      code injected into the page: DOM serializer, mutation catalogs
+src/triage/     anchor extraction, element matching, delta classification
+src/adapters/   one small adapter per test framework
+test/           node:test suites, fixture page, captured real error fixtures
+spikes/         phase 0 measurement scripts and report
 ```
