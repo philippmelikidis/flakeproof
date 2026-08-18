@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Node ≥ 20, `"type": "module"`, Testrunner ist `node:test` — keine weiteren Test-Frameworks
-- Dependencies ausschließlich: `playwright`, `@playwright/test`, `fast-xml-parser` (alle dev)
+- Dependencies ausschließlich: `playwright`, `@playwright/test`, `fast-xml-parser` (alle dev) — plus Lint-Tooling `eslint`, `@eslint/js`, `globals` (dev, Merge-Gate: `npm run lint`)
 - Code, Bezeichner, Kommentare und Commit-Messages auf Englisch; Plan-/Berichtsprosa deutsch
 - **Commits ohne jede KI-/Claude-Erwähnung** (kein `Co-Authored-By`, keine "Generated with"-Zeile)
 - Browser-injizierte Funktionen (`serializeDom`, alle `apply`-Funktionen) müssen self-contained sein: keine Closures über Modul-Scope, keine Imports — Playwright serialisiert nur den Funktionsquelltext
