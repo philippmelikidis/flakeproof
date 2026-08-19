@@ -140,7 +140,13 @@ export function classifyDelta(baseline, current, anchorSelector) {
   // A shrunken sibling set next to cosmetic-only evidence is indistinguishable
   // from the anchor itself having been removed and a sibling sliding into its
   // place, so it must not settle on a cosmetic verdict.
-  if (cosmetic.length) {
+  // After a wrapper insertion the "parent" at the matched path is a
+  // different node (the wrapper itself), so comparing its child count
+  // against the baseline parent's is meaningless. Only run this guard when
+  // the anchor's depth is unchanged, so wrapper-insertion cases (a purely
+  // cosmetic depth change) are excluded and fall through to a cosmetic
+  // verdict instead of being hedged to ambiguous.
+  if (cosmetic.length && b.path.length === target.path.length) {
     const baselineParent = baseline.anchorPath.length > 0 ? nodeAt(baseline.tree, baseline.anchorPath.slice(0, -1)) : null;
     const currentParent = b.path.length > 0 ? nodeAt(current.tree, b.path.slice(0, -1)) : null;
     if (baselineParent && currentParent && currentParent.children.length < baselineParent.children.length) {

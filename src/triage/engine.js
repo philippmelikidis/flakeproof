@@ -23,8 +23,12 @@ async function resolveAnchorPath(baseline, selector) {
     const page = await browser.newPage();
     // The serialized tree was captured after script execution; re-running
     // inline scripts against the already-hydrated HTML would mutate the DOM
-    // a second time and shift child indices.
-    const html = baseline.html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '');
+    // a second time and shift child indices. Script elements are part of
+    // the serialized tree, so they must stay in the DOM to keep child
+    // indices aligned. Neutralize them instead of removing them: injecting
+    // a foreign type as the FIRST attribute wins over any existing type
+    // attribute, so the script is never executed again.
+    const html = baseline.html.replace(/<script\b/gi, '<script type="application/x-flakeproof-disabled" ');
     await page.setContent(html);
     const locator = page.locator(selector);
     try {

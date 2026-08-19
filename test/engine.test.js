@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { captureSnapshot } from '../src/snapshot.js';
 import { triage } from '../src/triage/engine.js';
 
 const ROBOT_OUTPUT_FAIL = fileURLToPath(new URL('./fixtures/rf/output-fail.xml', import.meta.url));
+const FIXTURE_DIR = fileURLToPath(new URL('./fixtures/page/', import.meta.url));
 
 const timeoutError = (selector) =>
   `TimeoutError: locator.waitFor: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator('${selector}') to be visible`;
@@ -45,19 +46,52 @@ test('identical baseline and current yield unclear, never a guess', async () => 
   }
 });
 
-test('corrupted baseline html (re-executed inline script) does not crash or shift the anchor', async () => {
+test('leading body script does not derail anchor resolution', async () => {
+  // The script must genuinely be part of the page at capture time, not
+  // spliced into the html after the fact: only then does the serialized
+  // tree also contain it, at the same index the html anchor resolution
+  // sees. Build a temp copy of the fixture page with a script as the
+  // first child of <body> and serve that.
+  const fixtureDir = await mkdtemp(join(tmpdir(), 'fp-engine-fixture-'));
+  const originalHtml = await readFile(join(FIXTURE_DIR, 'index.html'), 'utf8');
+  const withLeadingScript = originalHtml.replace(
+    /<body>/i,
+    `<body><script>document.body.insertAdjacentHTML('afterbegin', '<div id="injected"></div>')</script>`,
+  );
+  await writeFile(join(fixtureDir, 'index.html'), withLeadingScript);
+  await copyFile(join(FIXTURE_DIR, 'logo.svg'), join(fixtureDir, 'logo.svg'));
+
+  const server = await startFixtureServer({ root: fixtureDir });
+  try {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const baselinePath = join(dir, 'baseline.json');
+    await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      baselinePath,
+      currentPath: baselinePath,
+    });
+    assert.equal(result.verdict, 'unclear');
+    assert.ok(
+      !result.notes.some((n) => n.includes('baseline html and serialized tree disagree')),
+      `expected anchor resolution to stay aligned despite the leading script, got notes: ${JSON.stringify(result.notes)}`,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('html/tree divergence is caught by the fidelity check', async () => {
   const server = await startFixtureServer();
   try {
     const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
     const baselinePath = join(dir, 'baseline.json');
     const baseline = await captureSnapshot(server.url);
-    // Simulate a baseline whose stored html still carries an inline script.
-    // Re-running it against the already-hydrated markup would insert an
-    // extra element and shift every child index computed from it.
-    baseline.html = baseline.html.replace(
-      /<body>/i,
-      `<body><script>document.body.insertAdjacentHTML('afterbegin','<div id="injected"></div>')</script>`,
-    );
+    // documentElement children: head is index 0, body is index 1. Remove
+    // the body's first child from the serialized tree only (not from the
+    // stored html), so the tree and the html genuinely disagree about the
+    // DOM shape at the anchor.
+    baseline.tree.children[1].children.splice(0, 1);
     await writeFile(baselinePath, JSON.stringify(baseline));
     const result = await triage({
       errorText: timeoutError('#cta'),
@@ -65,6 +99,10 @@ test('corrupted baseline html (re-executed inline script) does not crash or shif
       currentPath: baselinePath,
     });
     assert.equal(result.verdict, 'unclear');
+    assert.ok(
+      result.notes.some((n) => n.includes('baseline html and serialized tree disagree')),
+      `expected a fidelity-check note, got: ${JSON.stringify(result.notes)}`,
+    );
   } finally {
     await server.close();
   }

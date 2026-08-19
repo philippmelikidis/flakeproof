@@ -11,7 +11,7 @@ export function renderReport(r) {
     for (const reason of r.classification.reasons) lines.push(`- ${reason}`);
   }
   if (r.recommendation?.length) {
-    const shown = r.recommendation.filter((c) => c.survived > 0 || c.uniqueInCurrent);
+    const shown = r.recommendation.filter((c) => c.survived === null || c.survived > 0 || c.uniqueInCurrent);
     if (shown.length === 0) {
       lines.push('', 'No candidate survived proving; no safe recommendation.');
     } else {
