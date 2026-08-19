@@ -56,3 +56,19 @@ None.
 - rename-hashed-class at `.fusion-tb-header .fusion-builder-row-1 a.fusion-button.open-contact`: mutation not applicable
 - move-to-end at `.fusion-tb-header .fusion-builder-row-1 a.fusion-button.open-contact`: mutation not applicable
 - change-href at `.fusion-tb-header .fusion-builder-row-1 a.fusion-button.open-contact`: mutation not applicable
+
+## Checkpoint assessment
+
+Filled in by hand after the measurement run, per the phase 0 plan.
+
+- [x] Spike 1 (anchor extraction): proven. extractAnchor handles all four captured Playwright error formats plus Robot Framework output.xml, all validated against genuinely captured fixtures, including selectors containing quotes and anchorless assertion failures.
+- [x] Spike 2 (classifier): success criterion met. 0 misclassifications across 37 fixture and live cases; every cosmetic-vs-semantic verdict that was given was correct.
+- [x] Unclear rate documented and explained. 25 of 37 cases abstained, from two causes: mutations that leave no selector-relevant or meaning-bearing trace (no signals), and weak-identity elements (no id, no own text, no accessible name, no href) that the matcher cannot re-identify with confidence. Live capture confirmed weak-identity elements are a real category on production sites, not a fixture artifact.
+
+Decision: GO for phase 1.
+
+The abstention rate is the main quality lever to work on, not a blocker: the classifier never guessed wrong, it declined to answer. Three items carry over into phase 1 planning:
+
+1. Matcher improvements for weak-identity elements, for example contextual scoring that includes ancestor and child evidence, so bare li/div elements can be re-identified.
+2. Additional evidence sources for the no-signals cases, so more cosmetic mutations produce a positive cosmetic verdict instead of an abstention.
+3. Anchor-selection guidance for sites that duplicate DOM regions (light/dark header variants): prefer ids unique across variants or visibility-filtered selectors.
