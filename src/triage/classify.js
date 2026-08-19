@@ -2,10 +2,10 @@
 //   cosmetic: the selector broke on a meaning-free coupling (fragile test).
 //   semantic: meaning changed or vanished (probable real regression).
 //   unclear: mixed or missing evidence, never guess.
-import { nodeAt, findNode } from './tree.js';
+import { nodeAt, findNode, ancestorsOf } from './tree.js';
 import { findBestMatch } from './match.js';
 
-const HASHED_CLASS =
+export const HASHED_CLASS =
   /^(?:css|sc|jsx|svelte)-[a-z0-9]+$|^_?ng(?:content|host)-|^[a-z][\w-]*__[a-z0-9]{5,}$/i;
 
 export function selectorFeatures(selector) {
@@ -15,19 +15,6 @@ export function selectorFeatures(selector) {
     texts: [...selector.matchAll(/:(?:text|text-is|has-text)\(["']?(.+?)["']?\)/g)].map((m) => m[1]),
     structural: /[>~+]|:nth-/.test(selector),
   };
-}
-
-// Collects the ancestor nodes along a path, excluding the target/matched
-// node itself (i.e. root down to the parent of the node at `path`).
-function ancestorsOf(tree, path) {
-  const out = [];
-  let node = tree;
-  for (const i of path) {
-    out.push(node);
-    node = node.children?.[i];
-    if (!node) break;
-  }
-  return out;
 }
 
 export function classifyDelta(baseline, current, anchorSelector) {
