@@ -21,7 +21,20 @@ The mutations run inside the browser, not inside the test runner, so the core is
 
 ## Status
 
-Phase 0 (feasibility spikes) is complete: 0 misclassifications across 37 fixture and live cases, with a documented abstention rate, and a GO decision for phase 1 (red triage). Results are in `spikes/phase0-report.md`, reproducible via `npm run spike`. Spec and plan live in `docs/superpowers/`.
+Phase 0 complete, phase 1 red triage MVP in progress (issue #2).
+
+## Usage
+
+Capture a baseline while the build is green:
+
+    npx flakeproof snapshot https://your-app.example --out baseline.json
+
+When CI goes red, feed flakeproof the failure and the current build:
+
+    npx flakeproof triage --baseline baseline.json --robot-xml output.xml --current-url https://your-app.example
+    npx flakeproof triage --baseline baseline.json --error-file error.txt --current-url https://your-app.example --rerun-cmd "npx playwright test -g checkout"
+
+The verdict is one of: real-change (probable regression), fragile (selector coupling broke, comes with proven selector recommendations), nondeterministic (reruns disagree), unclear (evidence is mixed or missing, flakeproof does not guess), no-anchor (the error names no locator).
 
 ## Development
 
