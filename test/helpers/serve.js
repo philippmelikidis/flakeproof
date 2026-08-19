@@ -3,10 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'page');
+const defaultRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'page');
 const MIME = { '.html': 'text/html', '.svg': 'image/svg+xml' };
 
-export function startFixtureServer({ port = 0 } = {}) {
+export function startFixtureServer({ port = 0, root = defaultRoot } = {}) {
   const server = createServer(async (req, res) => {
     const file = req.url === '/' ? 'index.html' : req.url.slice(1);
     try {
