@@ -11,8 +11,8 @@
 ## Global Constraints
 
 - Node ≥ 20, `"type": "module"`, Testrunner ist `node:test` — keine weiteren Test-Frameworks
-- Dependencies ausschließlich: `playwright`, `@playwright/test`, `fast-xml-parser` (alle dev)
-- Code, Bezeichner, Kommentare und Commit-Messages auf Englisch; Plan-/Berichtsprosa deutsch
+- Dependencies ausschließlich: `playwright`, `@playwright/test`, `fast-xml-parser` (alle dev) — plus Lint-Tooling `eslint`, `@eslint/js`, `globals` (dev, Merge-Gate: `npm run lint`)
+- Sämtliche Repo-Texte (Code, Kommentare, Commit-Messages, README, generierte Berichte, Issues) auf Englisch, ohne Emojis, ohne em dashes (—), natürlich geschrieben; nur die internen Spec-/Plan-Dokumente bleiben deutsch
 - **Commits ohne jede KI-/Claude-Erwähnung** (kein `Co-Authored-By`, keine "Generated with"-Zeile)
 - Browser-injizierte Funktionen (`serializeDom`, alle `apply`-Funktionen) müssen self-contained sein: keine Closures über Modul-Scope, keine Imports — Playwright serialisiert nur den Funktionsquelltext
 - Robot-Framework-Läufe nutzen das bestehende `.venv/` im Repo-Root (robotframework + Browser Library sind dort installiert)
@@ -64,7 +64,7 @@ Phase 1 (Triage-Orchestrierung, Baseline-Artefakte, Selektor-Empfehlung, PR-Repo
 - Produces: `nodeAt(tree, path) -> node|null`, `walk(tree, fn)`, `findNode(tree, pred) -> node|null` (`src/triage/tree.js`)
 - Produces: `startFixtureServer({ port = 0 } = {}) -> Promise<{ url, close() }>`
 
-- [ ] **Step 1: package.json anlegen und Dependencies installieren**
+- [x] **Step 1: package.json anlegen und Dependencies installieren**
 
 ```json
 {
@@ -91,7 +91,7 @@ results.json
 test-results/
 ```
 
-- [ ] **Step 2: Fixture-Seite anlegen**
+- [x] **Step 2: Fixture-Seite anlegen**
 
 `test/fixtures/page/index.html`:
 
@@ -123,7 +123,7 @@ test-results/
 <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>
 ```
 
-- [ ] **Step 3: Fixture-Server schreiben**
+- [x] **Step 3: Fixture-Server schreiben**
 
 `test/helpers/serve.js`:
 
@@ -165,7 +165,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 }
 ```
 
-- [ ] **Step 4: Failing Test für den Serializer schreiben**
+- [x] **Step 4: Failing Test für den Serializer schreiben**
 
 `test/serialize.test.js`:
 
@@ -214,12 +214,12 @@ test('serializeDom returns null anchorPath for unmatched selector', async () => 
 });
 ```
 
-- [ ] **Step 5: Test laufen lassen — muss fehlschlagen**
+- [x] **Step 5: Test laufen lassen — muss fehlschlagen**
 
 Run: `npm test`
 Expected: FAIL — `Cannot find module .../src/probe/serialize.js`
 
-- [ ] **Step 6: Serializer und Baum-Helfer implementieren**
+- [x] **Step 6: Serializer und Baum-Helfer implementieren**
 
 `src/probe/serialize.js`:
 
@@ -315,12 +315,12 @@ export function findNode(tree, pred) {
 }
 ```
 
-- [ ] **Step 7: Tests laufen lassen — müssen bestehen**
+- [x] **Step 7: Tests laufen lassen — müssen bestehen**
 
 Run: `npm test`
 Expected: PASS (2 Tests)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add package.json package-lock.json .gitignore test/ src/
@@ -338,7 +338,7 @@ git commit -m "feat: project scaffold, fixture page, in-page DOM serializer"
 **Interfaces:**
 - Produces: `cosmeticMutations: Array<{ id, description, apply(selector) -> boolean }>` — `apply` läuft in-page, gibt `false` zurück, wenn nicht anwendbar
 
-- [ ] **Step 1: Failing Test schreiben**
+- [x] **Step 1: Failing Test schreiben**
 
 `test/cosmetic.test.js`:
 
@@ -402,11 +402,11 @@ test('wrap-element inserts one extra ancestor level', async () => {
 });
 ```
 
-- [ ] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../cosmetic.js`)
+- [x] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../cosmetic.js`)
 
 Run: `npm test`
 
-- [ ] **Step 3: Katalog implementieren**
+- [x] **Step 3: Katalog implementieren**
 
 `src/probe/catalogs/cosmetic.js`:
 
@@ -472,11 +472,11 @@ export const cosmeticMutations = [
 ];
 ```
 
-- [ ] **Step 4: Laufen lassen — PASS**
+- [x] **Step 4: Laufen lassen — PASS**
 
 Run: `npm test`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/probe/catalogs/cosmetic.js test/cosmetic.test.js
@@ -496,7 +496,7 @@ git commit -m "feat: cosmetic mutation catalog"
 
 Bewusst minimal (3 Mutationen): In Phase 0 dient dieser Katalog nur der Erzeugung gelabelter DOM-Paare für den Klassifikator-Spike. Der volle semantische Katalog ist Phase 2 (Notenvergabe).
 
-- [ ] **Step 1: Failing Test schreiben**
+- [x] **Step 1: Failing Test schreiben**
 
 `test/semantic.test.js`:
 
@@ -545,11 +545,11 @@ test('semantic mutations change meaning-bearing properties', async () => {
 });
 ```
 
-- [ ] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../semantic.js`)
+- [x] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../semantic.js`)
 
 Run: `npm test`
 
-- [ ] **Step 3: Implementieren**
+- [x] **Step 3: Implementieren**
 
 `src/probe/catalogs/semantic.js`:
 
@@ -590,7 +590,7 @@ export const semanticMutations = [
 ];
 ```
 
-- [ ] **Step 4: Laufen lassen — PASS**, dann **Commit**
+- [x] **Step 4: Laufen lassen — PASS**, dann **Commit**
 
 ```bash
 git add src/probe/catalogs/semantic.js test/semantic.test.js
@@ -611,7 +611,7 @@ git commit -m "feat: minimal semantic mutation catalog for classifier fixtures"
 
 Die Fixtures sind **echte, eingefangene** Fehlermeldungen — nicht von Hand geschrieben. So testet der Spike gegen die Realität, nicht gegen unsere Vermutung über Playwrights Format.
 
-- [ ] **Step 1: Capture-Skript für Library-Fehler schreiben**
+- [x] **Step 1: Capture-Skript für Library-Fehler schreiben**
 
 `test/helpers/capture-errors.js`:
 
@@ -651,7 +651,7 @@ await browser.close();
 await server.close();
 ```
 
-- [ ] **Step 2: @playwright/test-Fixture erzeugen**
+- [x] **Step 2: @playwright/test-Fixture erzeugen**
 
 `test/fixtures/pw/playwright.config.js`:
 
@@ -702,12 +702,12 @@ await writeFile('test/fixtures/errors/pwtest-expect-timeout.txt', clean, 'utf8')
 console.log('captured pwtest-expect-timeout');
 ```
 
-- [ ] **Step 3: Beide Capture-Skripte ausführen und Fixtures prüfen**
+- [x] **Step 3: Beide Capture-Skripte ausführen und Fixtures prüfen**
 
 Run: `node test/helpers/capture-errors.js && node test/helpers/capture-pwtest-error.js`
 Expected: 4 Dateien unter `test/fixtures/errors/`. Sichtprüfung: `pw-waitfor-timeout.txt` enthält `waiting for locator('#does-not-exist')`; `pw-strict-violation.txt` enthält `strict mode violation`. Weicht das Format ab, werden die Assertions in Step 4 an die **echten** Inhalte angepasst — die Fixtures sind die Wahrheit, nicht der Plan.
 
-- [ ] **Step 4: Failing Test gegen die echten Fixtures schreiben**
+- [x] **Step 4: Failing Test gegen die echten Fixtures schreiben**
 
 `test/anchor.test.js`:
 
@@ -765,11 +765,11 @@ test('empty input', () => {
 });
 ```
 
-- [ ] **Step 5: Laufen lassen — FAIL** (`Cannot find module .../anchor.js`)
+- [x] **Step 5: Laufen lassen — FAIL** (`Cannot find module .../anchor.js`)
 
 Run: `npm test`
 
-- [ ] **Step 6: Extraktor implementieren**
+- [x] **Step 6: Extraktor implementieren**
 
 `src/triage/anchor.js`:
 
@@ -805,11 +805,11 @@ export function extractAnchor(errorText) {
 }
 ```
 
-- [ ] **Step 7: Laufen lassen — PASS.** Schlägt ein Fixture-Test fehl, weil das echte Format abweicht: Extraktor anpassen (nicht das Fixture).
+- [x] **Step 7: Laufen lassen — PASS.** Schlägt ein Fixture-Test fehl, weil das echte Format abweicht: Extraktor anpassen (nicht das Fixture).
 
 Run: `npm test`
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/triage/anchor.js test/anchor.test.js test/helpers/capture-errors.js \
@@ -830,7 +830,7 @@ git commit -m "feat: anchor extraction from real Playwright error messages"
 - Consumes: `extractAnchor` aus Task 4
 - Produces: `failedTestsFromOutputXml(path) -> Promise<Array<{ testId, message, anchor }>>`
 
-- [ ] **Step 1: Absichtlich scheiternde RF-Suite schreiben**
+- [x] **Step 1: Absichtlich scheiternde RF-Suite schreiben**
 
 `test/fixtures/rf/broken.robot`:
 
@@ -845,7 +845,7 @@ Fails With Locator Timeout
     Wait For Elements State    css=#does-not-exist    visible    timeout=2s
 ```
 
-- [ ] **Step 2: Echtes Fehlerartefakt erzeugen**
+- [x] **Step 2: Echtes Fehlerartefakt erzeugen**
 
 ```bash
 node test/helpers/serve.js 8123 &
@@ -858,7 +858,7 @@ kill $SERVER_PID
 
 Expected: `1 test, 0 passed, 1 failed`; `test/fixtures/rf/output-fail.xml` existiert. Sichtprüfung: Die FAIL-Message enthält `waiting for locator`.
 
-- [ ] **Step 3: Failing Test schreiben**
+- [x] **Step 3: Failing Test schreiben**
 
 `test/robot-adapter.test.js`:
 
@@ -880,11 +880,11 @@ test('finds the failed RF test and extracts its anchor', async () => {
 });
 ```
 
-- [ ] **Step 4: Laufen lassen — FAIL** (`Cannot find module .../robot.js`)
+- [x] **Step 4: Laufen lassen — FAIL** (`Cannot find module .../robot.js`)
 
 Run: `npm test`
 
-- [ ] **Step 5: Adapter implementieren**
+- [x] **Step 5: Adapter implementieren**
 
 `src/adapters/robot.js`:
 
@@ -923,11 +923,11 @@ export async function failedTestsFromOutputXml(path) {
 }
 ```
 
-- [ ] **Step 6: Laufen lassen — PASS.** Weicht die echte XML-Struktur ab (RF-Version!), Adapter an die Realität anpassen.
+- [x] **Step 6: Laufen lassen — PASS.** Weicht die echte XML-Struktur ab (RF-Version!), Adapter an die Realität anpassen.
 
 Run: `npm test`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/adapters/robot.js test/fixtures/rf/ test/robot-adapter.test.js
@@ -946,7 +946,7 @@ git commit -m "feat: Robot Framework adapter extracts anchors from output.xml"
 - Consumes: `walk` aus `src/triage/tree.js`
 - Produces: `similarity(a, b) -> number`, `findBestMatch(tree, target, threshold = 5) -> { node, score } | null`
 
-- [ ] **Step 1: Failing Test schreiben**
+- [x] **Step 1: Failing Test schreiben**
 
 `test/match.test.js`:
 
@@ -1008,11 +1008,11 @@ test('returns null when nothing is similar enough', () => {
 });
 ```
 
-- [ ] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../match.js`)
+- [x] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../match.js`)
 
 Run: `npm test`
 
-- [ ] **Step 3: Implementieren**
+- [x] **Step 3: Implementieren**
 
 `src/triage/match.js`:
 
@@ -1063,7 +1063,7 @@ export function findBestMatch(tree, target, threshold = 5) {
 }
 ```
 
-- [ ] **Step 4: Laufen lassen — PASS**, dann **Commit**
+- [x] **Step 4: Laufen lassen — PASS**, dann **Commit**
 
 ```bash
 git add src/triage/match.js test/match.test.js
@@ -1085,7 +1085,7 @@ git commit -m "feat: element re-identification via weighted similarity"
 
 Kernidee: Nicht jede DOM-Änderung zählt gleich — entscheidend ist, **worauf der Selektor sich verlässt**. Bricht der Selektor an einer bedeutungsfreien Kopplung (gehashte Klasse, Wrapper, Position) → `cosmetic`. Ist Bedeutung verschwunden (Text, Ziel, Element selbst) → `semantic`. Gemischte oder fehlende Signale → `unclear`, niemals raten.
 
-- [ ] **Step 1: Failing Test schreiben**
+- [x] **Step 1: Failing Test schreiben**
 
 `test/classify.test.js`:
 
@@ -1218,11 +1218,11 @@ test('anchor missing in baseline -> unclear', () => {
 });
 ```
 
-- [ ] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../classify.js`)
+- [x] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../classify.js`)
 
 Run: `npm test`
 
-- [ ] **Step 3: Implementieren**
+- [x] **Step 3: Implementieren**
 
 `src/triage/classify.js`:
 
@@ -1313,7 +1313,7 @@ export function classifyDelta(baseline, current, anchorSelector) {
 }
 ```
 
-- [ ] **Step 4: Laufen lassen — PASS**, dann **Commit**
+- [x] **Step 4: Laufen lassen — PASS**, dann **Commit**
 
 ```bash
 git add src/triage/classify.js test/classify.test.js
@@ -1332,7 +1332,7 @@ git commit -m "feat: selector-aware delta classifier (cosmetic/semantic/unclear)
 - Consumes: alles aus Task 1–7
 - Produces: `spikes/phase0-report.md` mit Konfusionsmatrix und Go/No-Go-Bewertung; Exit-Code 1 bei Fehlklassifikationen
 
-- [ ] **Step 1: Messlauf-Skript schreiben**
+- [x] **Step 1: Messlauf-Skript schreiben**
 
 `spikes/run-phase0.js`:
 
@@ -1416,30 +1416,30 @@ const misclassified = rows.filter(
 const unclear = rows.filter((r) => r.verdict === 'unclear');
 const count = (label, verdict) => rows.filter((r) => r.label === label && r.verdict === verdict).length;
 
-const report = `# flakeproof Phase-0-Bericht
+const report = `# flakeproof phase 0 report
 
-Generiert von \`spikes/run-phase0.js\`.
+Generated by \`spikes/run-phase0.js\`.
 
-## Konfusionsmatrix
+## Confusion matrix
 
-| Label \\ Verdict | cosmetic | semantic | unclear |
+| label \\ verdict | cosmetic | semantic | unclear |
 |---|---|---|---|
 | cosmetic | ${count('cosmetic', 'cosmetic')} | ${count('cosmetic', 'semantic')} | ${count('cosmetic', 'unclear')} |
 | semantic | ${count('semantic', 'cosmetic')} | ${count('semantic', 'semantic')} | ${count('semantic', 'unclear')} |
 
-Fälle gesamt: ${rows.length} (davon live: ${rows.filter((r) => r.source === 'live').length}) · übersprungen: ${skipped.length}
+Total cases: ${rows.length} (live: ${rows.filter((r) => r.source === 'live').length}), skipped: ${skipped.length}
 
-## Fehlklassifikationen (Erfolgskriterium: 0)
+## Misclassifications (success criterion: 0)
 
-${misclassified.length === 0 ? 'Keine.' : misclassified.map((r) => `- **${r.mutationId}** @ \`${r.selector}\` → ${r.verdict}: ${r.reasons.join('; ')}`).join('\n')}
+${misclassified.length === 0 ? 'None.' : misclassified.map((r) => `- ${r.mutationId} at \`${r.selector}\` judged ${r.verdict}: ${r.reasons.join('; ')}`).join('\n')}
 
-## Unklare Fälle
+## Unclear cases
 
-${unclear.length === 0 ? 'Keine.' : unclear.map((r) => `- ${r.mutationId} @ \`${r.selector}\` (${r.label}): ${r.reasons.join('; ') || 'no signals'}`).join('\n')}
+${unclear.length === 0 ? 'None.' : unclear.map((r) => `- ${r.mutationId} at \`${r.selector}\` (${r.label}): ${r.reasons.join('; ') || 'no signals'}`).join('\n')}
 
-## Übersprungen
+## Skipped
 
-${skipped.length === 0 ? 'Keine.' : skipped.map((s) => `- ${s.mutationId} @ \`${s.selector}\`: ${s.why}`).join('\n')}
+${skipped.length === 0 ? 'None.' : skipped.map((s) => `- ${s.mutationId} at \`${s.selector}\`: ${s.why}`).join('\n')}
 `;
 
 await writeFile(new URL('./phase0-report.md', import.meta.url), report, 'utf8');
@@ -1447,7 +1447,7 @@ console.log(report);
 process.exit(misclassified.length > 0 ? 1 : 0);
 ```
 
-- [ ] **Step 2: Live-Capture-Skript schreiben** (manuell auszuführen, nicht Teil von `npm test`)
+- [x] **Step 2: Live-Capture-Skript schreiben** (manuell auszuführen, nicht Teil von `npm test`)
 
 `spikes/capture-live.js`:
 
@@ -1498,17 +1498,17 @@ await browser.close();
 console.log(`${n} live pairs captured`);
 ```
 
-- [ ] **Step 3: Messlauf auf der Fixture-Seite ausführen**
+- [x] **Step 3: Messlauf auf der Fixture-Seite ausführen**
 
 Run: `npm run spike`
 Expected: Konfusionsmatrix auf stdout, `spikes/phase0-report.md` geschrieben, Exit-Code 0. Bei Exit-Code 1: jede Fehlklassifikation einzeln ansehen — Fix gehört in `classify.js`/`match.js`, danach Messlauf wiederholen. Erwartbar ist ein nennenswerter `unclear`-Anteil bei positionsbezogenen Mutationen (`move-to-end` ohne strukturellen Selektor) — das ist per Design in Ordnung.
 
-- [ ] **Step 4: Live-Paare einfangen und erneut messen**
+- [x] **Step 4: Live-Paare einfangen und erneut messen**
 
 Run: `node spikes/capture-live.js && npm run spike`
 Expected: Live-Paare erscheinen im Bericht (`davon live: > 0`), weiterhin 0 Fehlklassifikationen. Hinweis: hängt von der Erreichbarkeit von testgilde.de ab; schlägt der Capture fehl, wird das im Checkpoint vermerkt und mit den Fixture-Zahlen entschieden.
 
-- [ ] **Step 5: Bericht um Go/No-Go-Abschnitt ergänzen**
+- [x] **Step 5: Bericht um Go/No-Go-Abschnitt ergänzen**
 
 In `spikes/phase0-report.md` von Hand unten anfügen (Ergebnis des Checkpoints, ehrlich ausfüllen):
 
@@ -1522,7 +1522,7 @@ In `spikes/phase0-report.md` von Hand unten anfügen (Ergebnis des Checkpoints, 
 **Entscheidung:** GO / NO-GO für Phase 1 (Begründung in 2–3 Sätzen)
 ```
 
-- [ ] **Step 6: Commit und Push**
+- [x] **Step 6: Commit und Push**
 
 ```bash
 git add spikes/
@@ -1530,7 +1530,7 @@ git commit -m "feat: phase-0 measurement run, live capture, report"
 git push
 ```
 
-- [ ] **Step 7: Checkpoint** — Bei GO: Phase-1-Plan schreiben (eigenes Plandokument, auf Basis der Spike-Erkenntnisse). Bei NO-GO: Spec-Abschnitt „Offene Risiken" aktualisieren und Zuschnitt neu entscheiden. In beiden Fällen ist das eine neue Planungsrunde, kein Task in diesem Plan.
+- [x] **Step 7: Checkpoint** — Bei GO: Phase-1-Plan schreiben (eigenes Plandokument, auf Basis der Spike-Erkenntnisse). Bei NO-GO: Spec-Abschnitt „Offene Risiken" aktualisieren und Zuschnitt neu entscheiden. In beiden Fällen ist das eine neue Planungsrunde, kein Task in diesem Plan.
 
 ---
 

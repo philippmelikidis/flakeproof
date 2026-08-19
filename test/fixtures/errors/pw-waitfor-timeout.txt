@@ -1,0 +1,3 @@
+locator.waitFor: Timeout 1500ms exceeded.
+Call log:
+  - waiting for locator('#does-not-exist') to be visible

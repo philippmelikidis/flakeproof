@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 7.4.2 (Python 3.14.5 on darwin)" generated="2026-08-18T16:02:19.753607" rpa="false" schemaversion="5">
+<suite id="s1" name="Broken" source="/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/rf/broken.robot">
+<test id="s1-t1" name="Fails With Locator Timeout" line="5">
+<kw name="New Browser" owner="Browser">
+<msg time="2026-08-18T16:02:19.818616" level="INFO">{"browser": "chromium", "headless": true, "chromiumSandbox": false, "devtools": false, "handleSIGHUP": true, "handleSIGINT": true, "handleSIGTERM": true, "slowMo": 0.0, "timeout": 30000.0, "tracesDir": "/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/rf/browser/traces/temp/ecd29688-088e-459a-9a39-bda06b1b3aaa"}</msg>
+<msg time="2026-08-18T16:02:19.833048" level="INFO">Starting Browser process /Users/PhilipposMelikidis/dev/robot-framework/.venv/lib/python3.14/site-packages/Browser/wrapper/index.js using at 127.0.0.1:53179</msg>
+<msg time="2026-08-18T16:02:21.393713" level="INFO">Successfully created browser with options: {"browser":"chromium","headless":true,"chromiumSandbox":false,"devtools":false,"handleSIGHUP":true,"handleSIGINT":true,"handleSIGTERM":true,"slowMo":0,"timeout":30000,"tracesDir":"/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/rf/browser/traces/temp/ecd29688-088e-459a-9a39-bda06b1b3aaa"}</msg>
+<arg>chromium</arg>
+<arg>headless=${True}</arg>
+<tag>BrowserControl</tag>
+<tag>Setter</tag>
+<doc>Create a new playwright Browser with specified options.</doc>
+<status status="PASS" start="2026-08-18T16:02:19.818321" elapsed="1.575637"/>
+</kw>
+<kw name="New Page" owner="Browser">
+<msg time="2026-08-18T16:02:21.517502" level="INFO">Successfully initialized new page object and opened url: http://127.0.0.1:8123/</msg>
+<msg time="2026-08-18T16:02:21.517556" level="INFO">No context was open. New context was automatically opened when this page is created.</msg>
+<arg>http://127.0.0.1:8123/</arg>
+<tag>BrowserControl</tag>
+<tag>Setter</tag>
+<doc>Open a new Page.</doc>
+<status status="PASS" start="2026-08-18T16:02:21.394290" elapsed="0.123350"/>
+</kw>
+<kw name="Wait For Elements State" owner="Browser">
+<msg time="2026-08-18T16:02:23.551557" level="INFO" html="true">&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td colspan="3"&gt;&lt;a href="browser/screenshot/fail-screenshot-1.png" target="_blank"&gt;&lt;img src="browser/screenshot/fail-screenshot-1.png" width="800px"/&gt;&lt;/a&gt;</msg>
+<msg time="2026-08-18T16:02:23.551657" level="INFO">See also file:///Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/rf/playwright-log.txt for additional details.</msg>
+<msg time="2026-08-18T16:02:23.551950" level="FAIL">TimeoutError: locator.waitFor: Timeout 2000ms exceeded.
+Call log:
+  - waiting for locator('#does-not-exist') to be visible
+</msg>
+<arg>css=#does-not-exist</arg>
+<arg>visible</arg>
+<arg>timeout=2s</arg>
+<tag>PageContent</tag>
+<tag>Wait</tag>
+<doc>Waits for the element found by ``selector`` to satisfy state option.</doc>
+<status status="FAIL" start="2026-08-18T16:02:21.517746" elapsed="2.037688">TimeoutError: locator.waitFor: Timeout 2000ms exceeded.
+Call log:
+  - waiting for locator('#does-not-exist') to be visible
+</status>
+</kw>
+<msg time="2026-08-18T16:02:23.562773" level="INFO">Switching context to context=000d0e27-ef4c-4652-bc36-20a4e844fba5 in CURRENT</msg>
+<msg time="2026-08-18T16:02:23.565438" level="INFO">Successfully changed active context: context=000d0e27-ef4c-4652-bc36-20a4e844fba5</msg>
+<msg time="2026-08-18T16:02:23.569750" level="INFO">Successfully closed Context</msg>
+<status status="FAIL" start="2026-08-18T16:02:19.817973" elapsed="3.737625">TimeoutError: locator.waitFor: Timeout 2000ms exceeded.
+Call log:
+  - waiting for locator('#does-not-exist') to be visible
+</status>
+</test>
+<status status="FAIL" start="2026-08-18T16:02:19.754532" elapsed="3.815648"/>
+</suite>
+<statistics>
+<total>
+<stat pass="0" fail="1" skip="0">All Tests</stat>
+</total>
+<tag>
+</tag>
+<suite>
+<stat name="Broken" id="s1" pass="0" fail="1" skip="0">Broken</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>

@@ -1,0 +1,8 @@
+locator.click: Error: strict mode violation: locator('.nav-item') resolved to 4 elements:
+    1) <li class="nav-item css-1a2b3c">…</li> aka getByRole('listitem').filter({ hasText: 'Products' })
+    2) <li class="nav-item css-9z8y7x">…</li> aka getByRole('listitem').filter({ hasText: 'Solutions' })
+    3) <li class="nav-item css-4d5e6f">…</li> aka getByRole('listitem').filter({ hasText: 'Company' })
+    4) <li class="nav-item css-7g8h9i">…</li> aka getByRole('listitem').filter({ hasText: 'Careers' })
+
+Call log:
+  - waiting for locator('.nav-item')

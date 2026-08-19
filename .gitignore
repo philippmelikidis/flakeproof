@@ -3,3 +3,8 @@ results/
 __pycache__/
 *.pyc
 .DS_Store
+.superpowers/
+node_modules/
+test/fixtures/pw/results.json
+results.json
+test-results/
