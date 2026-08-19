@@ -137,6 +137,17 @@ export function classifyDelta(baseline, current, anchorSelector) {
     semantic.push(`href changed: "${target.attrs.href ?? ''}" -> "${b.attrs.href ?? ''}"`);
   }
 
+  // A shrunken sibling set next to cosmetic-only evidence is indistinguishable
+  // from the anchor itself having been removed and a sibling sliding into its
+  // place, so it must not settle on a cosmetic verdict.
+  if (cosmetic.length) {
+    const baselineParent = baseline.anchorPath.length > 0 ? nodeAt(baseline.tree, baseline.anchorPath.slice(0, -1)) : null;
+    const currentParent = b.path.length > 0 ? nodeAt(current.tree, b.path.slice(0, -1)) : null;
+    if (baselineParent && currentParent && currentParent.children.length < baselineParent.children.length) {
+      ambiguous.push('a sibling of the anchor disappeared; cannot tell a rename from a removal');
+    }
+  }
+
   let verdict = 'unclear';
   if (!ambiguous.length) {
     if (semantic.length && !cosmetic.length) verdict = 'semantic';

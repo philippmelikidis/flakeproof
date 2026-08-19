@@ -1,6 +1,7 @@
 // Re-identifies "the same" element in a changed DOM tree via weighted
-// similarity. Weights are phase-0 starting values; the spike report
-// documents how they held up.
+// similarity. Weights and threshold were recalibrated after the phase-1
+// review: two leaf elements sharing only tag and position now score 5 and
+// no longer clear the bar.
 import { walk } from './tree.js';
 
 const WEIGHTS = { tag: 2, id: 3, text: 3, name: 2, href: 2, classOverlap: 2, role: 1, locality: 3, children: 3 };
@@ -29,11 +30,12 @@ function localityBonus(aPath, bPath) {
 }
 
 // What a node's direct children say about its identity: their text, or
-// failing that their href, or failing that their tag. Locality alone cannot
-// tell a removed element from the sibling that slid into its position; the
-// children can ("Products" vs "Solutions").
+// failing that their href. Locality alone cannot tell a removed element from
+// the sibling that slid into its position; the children can ("Products" vs
+// "Solutions"). Tag-only children carry no identity of their own and must
+// not corroborate a match.
 function childSignature(node) {
-  return node.children.slice(0, 8).map((c) => c.text || c.attrs.href || c.tag);
+  return node.children.slice(0, 8).map((c) => c.text || c.attrs.href || null).filter(Boolean);
 }
 
 function childrenScore(a, b) {
@@ -53,7 +55,7 @@ export function similarity(a, b) {
   if (a.name && a.name === b.name) score += WEIGHTS.name;
   if (a.attrs.href && a.attrs.href === b.attrs.href) score += WEIGHTS.href;
   score += WEIGHTS.classOverlap * jaccard(a.classes, b.classes);
-  if (a.role && a.role === b.role) score += WEIGHTS.role;
+  if (a.attrs.role && a.attrs.role === b.attrs.role) score += WEIGHTS.role;
   score += localityBonus(a.path, b.path);
   score += childrenScore(a, b);
   if (a.path.length > 0 && b.path.length > 0) {
@@ -63,7 +65,7 @@ export function similarity(a, b) {
   return score;
 }
 
-export function findBestMatch(tree, target, threshold = 5) {
+export function findBestMatch(tree, target, threshold = 6) {
   let best = null;
   let bestScore = -Infinity;
   walk(tree, (node) => {

@@ -11,12 +11,18 @@ export function renderReport(r) {
     for (const reason of r.classification.reasons) lines.push(`- ${reason}`);
   }
   if (r.recommendation?.length) {
-    lines.push('', '## Recommended selectors', '');
-    lines.push('| selector | kind | unique | survived mutations |');
-    lines.push('|---|---|---|---|');
-    for (const c of r.recommendation) {
-      const proof = c.survived === null ? 'not proven (no current URL)' : `${c.survived}/${c.applied}`;
-      lines.push(`| \`${c.selector}\` | ${c.kind} | ${c.uniqueAtBaseline ? 'yes' : 'no'} | ${proof} |`);
+    const shown = r.recommendation.filter((c) => c.survived > 0 || c.uniqueInCurrent);
+    if (shown.length === 0) {
+      lines.push('', 'No candidate survived proving; no safe recommendation.');
+    } else {
+      lines.push('', '## Recommended selectors', '');
+      lines.push('| selector | kind | unique | survived mutations |');
+      lines.push('|---|---|---|---|');
+      for (const c of shown) {
+        const proof = c.survived === null ? 'not proven (no current URL)' : `${c.survived}/${c.applied}`;
+        const unique = c.uniqueInCurrent === null ? 'unknown' : c.uniqueInCurrent ? 'yes' : 'no';
+        lines.push(`| \`${c.selector}\` | ${c.kind} | ${unique} | ${proof} |`);
+      }
     }
   }
   if (r.notes?.length) {

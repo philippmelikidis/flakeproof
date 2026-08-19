@@ -43,7 +43,8 @@ async function main() {
         out: { type: 'string' },
       },
     });
-    if (!values.baseline || (!values['error-file'] && !values['robot-xml'])) throw new Error(USAGE);
+    const currentSources = [values['current-url'], values.current].filter(Boolean).length;
+    if (!values.baseline || (!values['error-file'] && !values['robot-xml']) || currentSources !== 1) throw new Error(USAGE);
     const result = await triage({
       errorText: values['error-file'] ? await readFile(values['error-file'], 'utf8') : undefined,
       robotOutputXml: values['robot-xml'],

@@ -25,7 +25,7 @@ test('id candidate survives every applicable cosmetic mutation', async () => {
     const proven = await proveCandidates(server.url, snap.anchorPath, candidates);
     const top = proven[0];
     assert.equal(top.selector, '#cta');
-    assert.equal(top.uniqueAtBaseline, true);
+    assert.equal(top.uniqueInCurrent, true);
     assert.ok(top.applied >= 3, `expected at least 3 applicable mutations, got ${top.applied}`);
     assert.equal(top.survived, top.applied);
   } finally {

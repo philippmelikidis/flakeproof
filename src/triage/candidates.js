@@ -34,6 +34,7 @@ function matchesCompound(node, c) {
 }
 
 export function queryTree(tree, selector) {
+  if (!selector || !selector.trim()) return null;
   const parts = selector.trim().split(/\s+/).map(parseCompound);
   if (parts.some((p) => p === null)) return null;
   const out = [];

@@ -21,7 +21,7 @@ The mutations run inside the browser, not inside the test runner, so the core is
 
 ## Status
 
-Phase 0 complete, phase 1 red triage MVP in progress (issue #2).
+Phase 1 (red triage MVP) is complete: the triage CLI classifies red runs as real-change, fragile, nondeterministic or unclear, and proves selector recommendations against the cosmetic mutation catalog. Phase 0 results: 0 misclassifications across fixture and live cases.
 
 ## Usage
 

@@ -17,7 +17,7 @@ test('renderReport shows verdict, evidence and recommendation table', () => {
     anchor: { selector: 'li.css-1a2b3c', kind: 'timeout' },
     rerun: { runs: 3, failures: 3, exitCodes: [1, 1, 1] },
     classification: { verdict: 'cosmetic', reasons: ['selector relies on build-generated class ".css-1a2b3c" which is gone from the element'] },
-    recommendation: [{ selector: '#main-nav li:nth-child(1)', kind: 'positional', uniqueAtBaseline: true, survived: 4, applied: 5 }],
+    recommendation: [{ selector: '#main-nav li:nth-child(1)', kind: 'positional', uniqueInCurrent: true, survived: 4, applied: 5 }],
     notes: ['test failed on every rerun; deterministic failure'],
   });
   assert.ok(md.includes('**fragile**'));

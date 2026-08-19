@@ -55,10 +55,18 @@ test('returns null when nothing is similar enough', () => {
 });
 
 test('matching explicit role adds to the score', () => {
-  const a = n('div', { role: 'dialog' });
-  const b = n('div', { role: 'dialog' });
+  const a = n('div', { attrs: { role: 'dialog' } });
+  const b = n('div', { attrs: { role: 'dialog' } });
   const c = n('div', {});
   assert.ok(similarity(a, b) > similarity(a, c));
+});
+
+test('two bare anchors at the same path do not match on tag+position alone', () => {
+  // No id, text, name, href, classes or children on either side - tag and
+  // position are the only things they share, and that must not be enough.
+  const target = n('a', { path: [0, 0, 0] });
+  const tree = withPaths(n('body', {}, [n('div', {}, [n('div', {}, [n('a', {})])])]));
+  assert.equal(findBestMatch(tree, target), null);
 });
 
 test('locality prefers the element in the same region over a distant twin', () => {

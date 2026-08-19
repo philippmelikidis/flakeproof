@@ -31,7 +31,7 @@ function checkCandidate(selector) {
 export async function proveCandidates(url, anchorPath, candidates, { mutations = cosmeticMutations } = {}) {
   const browser = await chromium.launch();
   try {
-    const results = candidates.map((c) => ({ ...c, uniqueAtBaseline: false, survived: 0, applied: 0 }));
+    const results = candidates.map((c) => ({ ...c, uniqueInCurrent: false, survived: 0, applied: 0 }));
 
     const withPage = async (fn) => {
       const page = await browser.newPage();
@@ -45,11 +45,11 @@ export async function proveCandidates(url, anchorPath, candidates, { mutations =
       }
     };
 
-    // Uniqueness on the unmutated page.
+    // Uniqueness on the unmutated current page.
     await withPage(async (page) => {
       for (const r of results) {
         const { hit } = await page.evaluate(checkCandidate, r.selector);
-        r.uniqueAtBaseline = hit;
+        r.uniqueInCurrent = hit;
       }
     });
 
@@ -66,7 +66,7 @@ export async function proveCandidates(url, anchorPath, candidates, { mutations =
     }
 
     return results.sort(
-      (x, y) => Number(y.uniqueAtBaseline) - Number(x.uniqueAtBaseline) || y.survived - x.survived,
+      (x, y) => Number(y.uniqueInCurrent) - Number(x.uniqueInCurrent) || y.survived - x.survived,
     );
   } finally {
     await browser.close();

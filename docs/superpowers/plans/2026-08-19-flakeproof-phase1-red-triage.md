@@ -63,7 +63,7 @@ Behebt den zentralen Phase-0-Carry-Over: Auf Seiten mit duplizierten DOM-Regione
 - Consumes: bestehende Knotenform `{ tag, id, classes[], attrs{}, text, name, path[], children[] }`
 - Produces: Knotenform erweitert um `role: string` (leer wenn keins); `similarity(a, b)` berücksichtigt `role` (Gewicht 1), Localität (max. 3, Anteil gemeinsames Pfad-Präfix) und Kind-Signaturen (max. +3 bei gleichen Kindern, -2 bei komplett fremden Kindern, -1 wenn nur eine Seite Kinder hat); `findBestMatch`-Signatur unverändert
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [x] **Step 1: Failing Tests schreiben**
 
 In `test/match.test.js` den `n()`-Helper um `role: ''` in den Defaults ergänzen und diese Tests anfügen:
 
@@ -164,11 +164,11 @@ test('serializeDom emits explicit and implicit roles', async () => {
 });
 ```
 
-- [ ] **Step 2: Laufen lassen — FAIL** (role undefined, Twin gewinnt, li matcht nicht)
+- [x] **Step 2: Laufen lassen — FAIL** (role undefined, Twin gewinnt, li matcht nicht)
 
 Run: `npm test`
 
-- [ ] **Step 3: Implementieren**
+- [x] **Step 3: Implementieren**
 
 `src/probe/serialize.js` — in `serializeDom` (self-contained!) vor `serialize` einfügen und den Rückgabeknoten erweitern:
 
@@ -234,16 +234,16 @@ In `similarity` nach der `classOverlap`-Zeile:
   score += childrenScore(a, b);
 ```
 
-- [ ] **Step 4: Laufen lassen — alle Tests PASS** (bestehende Suiten müssen unverändert grün bleiben; die klassifikator-relevanten Erwartungen ändern sich nicht, weil die drei neuen Punkte nur den Match selbst betreffen)
+- [x] **Step 4: Laufen lassen — alle Tests PASS** (bestehende Suiten müssen unverändert grün bleiben; die klassifikator-relevanten Erwartungen ändern sich nicht, weil die drei neuen Punkte nur den Match selbst betreffen)
 
 Run: `npm test && npx eslint .`
 
-- [ ] **Step 5: Spike-Messlauf mit neuem Matcher**
+- [x] **Step 5: Spike-Messlauf mit neuem Matcher**
 
 Run: `npm run spike`
 Expected: Exit 0, **0 Fehlklassifikationen** (hartes Kriterium), unclear-Zahl sinkt gegenüber 25 (der Localitäts-Term identifiziert die schwachen li- und Live-CTA-Fälle jetzt teilweise korrekt). Die Checkpoint-Sektion bleibt erhalten (der Generator bewahrt sie seit dem Phase-0-Fix). Taucht eine Fehlklassifikation auf: STOPP, nicht committen, als BLOCKED eskalieren mit der Konfusionsmatrix.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/probe/serialize.js src/triage/match.js test/match.test.js test/serialize.test.js spikes/phase0-report.md
@@ -264,7 +264,7 @@ git commit -m "feat: locality and role scoring in element matcher"
 - Produces: `queryTree(tree, selector) -> node[] | null` (null = Selektor außerhalb der Grammatik); `candidatesFor(tree, path) -> Array<{ selector, kind: 'id'|'testid'|'aria'|'class'|'scoped'|'positional' }>` — nur Kandidaten, die im Baum eindeutig genau das Zielelement treffen
 - Grammatik: compound = `[tag][#id][.class …][[attr="value"]][:nth-child(n)]`; Selektor = 1..n compounds mit Descendant-Kombinator (Leerzeichen)
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [x] **Step 1: Failing Tests schreiben**
 
 `test/candidates.test.js`:
 
@@ -334,9 +334,9 @@ test('candidatesFor falls back to a positional candidate for anonymous elements'
 });
 ```
 
-- [ ] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../candidates.js`)
+- [x] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../candidates.js`)
 
-- [ ] **Step 3: Refactor und Implementierung**
+- [x] **Step 3: Refactor und Implementierung**
 
 `src/triage/tree.js` — anfügen:
 
@@ -459,11 +459,11 @@ export function candidatesFor(tree, path) {
 }
 ```
 
-- [ ] **Step 4: Laufen lassen — PASS** (inkl. aller bestehenden Suiten: der classify-Refactor darf nichts ändern)
+- [x] **Step 4: Laufen lassen — PASS** (inkl. aller bestehenden Suiten: der classify-Refactor darf nichts ändern)
 
 Run: `npm test && npx eslint .`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/triage/candidates.js src/triage/tree.js src/triage/classify.js test/candidates.test.js
@@ -484,7 +484,7 @@ Beweist Kandidaten statt sie zu behaupten: Jede kosmetische Mutation wird auf da
 - Consumes: `cosmeticMutations` (Katalog), `candidatesFor`, `serializeDom`, `startFixtureServer`
 - Produces: `proveCandidates(url, anchorPath, candidates, { mutations = cosmeticMutations } = {}) -> Promise<Array<{ selector, kind, uniqueAtBaseline: boolean, survived: number, applied: number }>>`, absteigend sortiert nach (uniqueAtBaseline, survived). Nicht anwendbare Mutationen zählen nicht in `applied` (nichts wird stillschweigend verrechnet — `applied` weist die echte Basis aus)
 
-- [ ] **Step 1: Failing Test schreiben**
+- [x] **Step 1: Failing Test schreiben**
 
 `test/prove.test.js`:
 
@@ -540,9 +540,9 @@ test('positional candidate survives renames but not reordering', async () => {
 });
 ```
 
-- [ ] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../prove.js`)
+- [x] **Step 2: Laufen lassen — FAIL** (`Cannot find module .../prove.js`)
 
-- [ ] **Step 3: Implementieren**
+- [x] **Step 3: Implementieren**
 
 `src/triage/prove.js`:
 
@@ -621,11 +621,11 @@ export async function proveCandidates(url, anchorPath, candidates, { mutations =
 }
 ```
 
-- [ ] **Step 4: Laufen lassen — PASS.** Weichen die erwarteten Zahlen (z. B. `applied`) von der Realität ab: erst verstehen, welche Mutation auf dem Element greift, dann die Assertion an die Realität anpassen und die Abweichung im Report dokumentieren — nie den Prover verbiegen.
+- [x] **Step 4: Laufen lassen — PASS.** Weichen die erwarteten Zahlen (z. B. `applied`) von der Realität ab: erst verstehen, welche Mutation auf dem Element greift, dann die Assertion an die Realität anpassen und die Abweichung im Report dokumentieren — nie den Prover verbiegen.
 
 Run: `npm test && npx eslint .`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/triage/prove.js test/prove.test.js
@@ -646,7 +646,7 @@ Zwei kleine Bausteine für Nichtdeterminismus: `temporalScript` erzeugt ein Init
 - Produces: `temporalScript(selector, ms) -> string` (self-contained Init-Script-Quelltext für `context.addInitScript`)
 - Produces: `rerunStats(command, runs = 3) -> Promise<{ runs, failures, exitCodes: number[], nondeterministic: boolean }>` — `nondeterministic` ist wahr bei gemischten Ergebnissen (0 < failures < runs)
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [x] **Step 1: Failing Tests schreiben**
 
 `test/temporal.test.js`:
 
@@ -707,9 +707,9 @@ test('mixed outcomes are nondeterministic', async () => {
 });
 ```
 
-- [ ] **Step 2: Laufen lassen — FAIL** (Module fehlen)
+- [x] **Step 2: Laufen lassen — FAIL** (Module fehlen)
 
-- [ ] **Step 3: Implementieren**
+- [x] **Step 3: Implementieren**
 
 `src/probe/temporal.js`:
 
@@ -761,7 +761,7 @@ export async function rerunStats(command, runs = 3) {
 }
 ```
 
-- [ ] **Step 4: Laufen lassen — PASS**, dann **Commit**
+- [x] **Step 4: Laufen lassen — PASS**, dann **Commit**
 
 ```bash
 git add src/probe/temporal.js src/triage/rerun.js test/temporal.test.js test/rerun.test.js
@@ -780,7 +780,7 @@ git commit -m "feat: temporal delay script and rerun-based nondeterminism probe"
 - Consumes: `serializeDom`
 - Produces: `captureSnapshot(url, { anchorSelector = null, viewport = { width: 1920, height: 1080 } } = {}) -> Promise<{ tree, anchorPath, html, url }>` — `html` ist das rohe `outerHTML` des Dokuments; es erlaubt der Engine, den Anker zur Triage-Zeit mit Playwright-Selektor-Syntax aufzulösen (zur Capture-Zeit ist der fehlschlagende Selektor unbekannt)
 
-- [ ] **Step 1: Failing Test schreiben**
+- [x] **Step 1: Failing Test schreiben**
 
 `test/snapshot.test.js`:
 
@@ -805,7 +805,7 @@ test('captureSnapshot returns tree, html and resolved anchor', async () => {
 });
 ```
 
-- [ ] **Step 2: FAIL**, dann **Step 3: Implementieren**
+- [x] **Step 2: FAIL**, dann **Step 3: Implementieren**
 
 `src/snapshot.js`:
 
@@ -830,7 +830,7 @@ export async function captureSnapshot(url, { anchorSelector = null, viewport = {
 }
 ```
 
-- [ ] **Step 4: PASS**, dann **Step 5: Commit**
+- [x] **Step 4: PASS**, dann **Step 5: Commit**
 
 ```bash
 git add src/snapshot.js test/snapshot.test.js
@@ -853,7 +853,7 @@ Orchestriert den Triage-Algorithmus aus der Spec: Anker aus dem Fehler, optional
 - Produces: `triage(opts) -> Promise<result>` mit `opts = { errorText?, robotOutputXml?, baselinePath, currentUrl?, currentPath?, rerunCommand?, reruns? }` und `result = { verdict: 'real-change'|'fragile'|'nondeterministic'|'unclear'|'no-anchor', anchor, testId, rerun, classification, recommendation, notes: string[] }`
 - Modifiziert: `classifyDelta` gibt bei Match `match: { score, path }` zurück (Pfad des gematchten Elements im aktuellen Baum; die Engine braucht ihn, um dem Prover das Ziel zu zeigen)
 
-- [ ] **Step 1: classify.js-Änderung + failing Tests**
+- [x] **Step 1: classify.js-Änderung + failing Tests**
 
 In `src/triage/classify.js` die letzte Return-Zeile ändern zu:
 
@@ -909,7 +909,7 @@ test('identical baseline and current yield unclear, never a guess', async () => 
 });
 ```
 
-- [ ] **Step 2: FAIL**, dann **Step 3: Implementieren**
+- [x] **Step 2: FAIL**, dann **Step 3: Implementieren**
 
 `src/triage/engine.js`:
 
@@ -1025,11 +1025,11 @@ export async function triage(opts) {
 }
 ```
 
-- [ ] **Step 4: Laufen lassen — PASS** (alle Suiten; die classify-Änderung darf keine bestehenden Tests brechen)
+- [x] **Step 4: Laufen lassen — PASS** (alle Suiten; die classify-Änderung darf keine bestehenden Tests brechen)
 
 Run: `npm test && npx eslint .`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/triage/engine.js src/triage/classify.js test/engine.test.js
@@ -1049,7 +1049,7 @@ git commit -m "feat: red triage engine"
 - Consumes: `triage`, `captureSnapshot`
 - Produces: `renderReport(result) -> string` (Markdown); CLI-Kommandos `flakeproof snapshot <url> [--anchor <sel>] --out <file>` und `flakeproof triage --baseline <file> (--error-file <f> | --robot-xml <f>) (--current-url <url> | --current <file>) [--rerun-cmd <cmd>] [--reruns <n>] [--json] [--out <file>]`. Exit 0 wenn ein Verdict produziert wurde (auch `unclear`/`no-anchor`), Exit 1 bei Bedienungs-/Laufzeitfehler
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [x] **Step 1: Failing Tests schreiben**
 
 `test/cli.test.js`:
 
@@ -1106,7 +1106,7 @@ test('cli snapshot and triage round-trip on the fixture page', async () => {
 });
 ```
 
-- [ ] **Step 2: FAIL**, dann **Step 3: Implementieren**
+- [x] **Step 2: FAIL**, dann **Step 3: Implementieren**
 
 `src/report.js`:
 
@@ -1224,7 +1224,7 @@ main().catch((err) => {
   "bin": { "flakeproof": "bin/flakeproof.js" },
 ```
 
-- [ ] **Step 4: PASS** (`npm test && npx eslint .`), dann **Step 5: Commit**
+- [x] **Step 4: PASS** (`npm test && npx eslint .`), dann **Step 5: Commit**
 
 ```bash
 git add src/report.js bin/flakeproof.js package.json test/cli.test.js
@@ -1245,7 +1245,7 @@ Der Beweis, dass das MVP sein Versprechen hält: drei Szenarien gegen echte, unt
 **Interfaces:**
 - Modifiziert: `startFixtureServer({ port = 0, root } = {})` — `root` ist ein absoluter Verzeichnispfad, Default bleibt die bisherige Fixture-Seite; CLI-Modus unverändert
 
-- [ ] **Step 1: serve.js erweitern**
+- [x] **Step 1: serve.js erweitern**
 
 In `test/helpers/serve.js` die Signatur und die Pfadauflösung ändern:
 
@@ -1257,7 +1257,7 @@ export function startFixtureServer({ port = 0, root = defaultRoot } = {}) {
 
 Im Handler `join(root, file)` statt der Modulkonstante verwenden (die Konstante `root` oben in `defaultRoot` umbenennen, damit nichts kollidiert).
 
-- [ ] **Step 2: Varianten anlegen**
+- [x] **Step 2: Varianten anlegen**
 
 `test/fixtures/page-v2/index.html` — der kosmetische Build. Kopie von `test/fixtures/page/index.html` mit exakt diesen Änderungen: alle vier Hash-Klassen umbenannt (`css-1a2b3c` zu `css-q1w2e3`, `css-9z8y7x` zu `css-r4t5z6`, `css-4d5e6f` zu `css-u7i8o9`, `css-7g8h9i` zu `css-p0a1s2`) und der CTA-Link in einen Wrapper gelegt:
 
@@ -1269,7 +1269,7 @@ Im Handler `join(root, file)` statt der Modulkonstante verwenden (die Konstante 
 
 `logo.svg` in beide Varianten-Ordner kopieren (identischer Inhalt wie v1).
 
-- [ ] **Step 3: Failing E2E-Tests schreiben**
+- [x] **Step 3: Failing E2E-Tests schreiben**
 
 `test/e2e-triage.test.js`:
 
@@ -1352,11 +1352,11 @@ test('removed weak-identity element yields an honest unclear', async () => {
 });
 ```
 
-- [ ] **Step 4: Laufen lassen.** Erwartung: alle drei Szenarien wie asserted. Weicht ein Verdict ab, liegt ein echter Integrationsfehler vor — die Ursache in Engine/Matcher/Klassifikator verstehen und dort beheben; niemals die Fixture oder die Assertion passend biegen, ohne die Abweichung zu verstehen und im Report zu dokumentieren.
+- [x] **Step 4: Laufen lassen.** Erwartung: alle drei Szenarien wie asserted. Weicht ein Verdict ab, liegt ein echter Integrationsfehler vor — die Ursache in Engine/Matcher/Klassifikator verstehen und dort beheben; niemals die Fixture oder die Assertion passend biegen, ohne die Abweichung zu verstehen und im Report zu dokumentieren.
 
 Run: `npm test && npx eslint .`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add test/fixtures/page-v2/ test/fixtures/page-v3/ test/helpers/serve.js test/e2e-triage.test.js
@@ -1370,7 +1370,7 @@ git commit -m "feat: fixture build variants and end-to-end triage tests"
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Usage-Abschnitt einfügen** (nach "## Status", vor "## Development"; englisch, keine em dashes, keine Emojis):
+- [x] **Step 1: Usage-Abschnitt einfügen** (nach "## Status", vor "## Development"; englisch, keine em dashes, keine Emojis):
 
 ```markdown
 ## Usage
@@ -1387,9 +1387,9 @@ When CI goes red, feed flakeproof the failure and the current build:
 The verdict is one of: real-change (probable regression), fragile (selector coupling broke, comes with proven selector recommendations), nondeterministic (reruns disagree), unclear (evidence is mixed or missing, flakeproof does not guess), no-anchor (the error names no locator).
 ```
 
-- [ ] **Step 2: Status-Absatz aktualisieren** auf: Phase 0 complete, phase 1 red triage MVP in progress (issue #2). Nach dem Merge passt der Controller den Status final an.
+- [x] **Step 2: Status-Absatz aktualisieren** auf: Phase 0 complete, phase 1 red triage MVP in progress (issue #2). Nach dem Merge passt der Controller den Status final an.
 
-- [ ] **Step 3: Prüfen und Commit**
+- [x] **Step 3: Prüfen und Commit**
 
 Run: `npx eslint . && grep -n "npx flakeproof" README.md`
 

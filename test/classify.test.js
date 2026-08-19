@@ -208,6 +208,38 @@ test('weak-identity element (no id/text/href of its own) is now re-identified vi
   assert.ok(r.match, 'locality must now enable matching of bare li');
 });
 
+test('sibling slide-in with equal text next to cosmetic evidence -> unclear', () => {
+  // Two <a class="css-*">Learn more</a> siblings in the baseline; the anchor
+  // is the first (css-1a2b3c). In "current" only the second sibling
+  // (css-9z8y7x) remains, at the same position the anchor used to occupy.
+  // The class-rename evidence alone would say cosmetic, but the shrunken
+  // sibling set means this is indistinguishable from the anchor having been
+  // removed and its sibling sliding into place.
+  const before = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('div', {}, [
+          n('a', { classes: ['css-1a2b3c'], text: 'Learn more' }),
+          n('a', { classes: ['css-9z8y7x'], text: 'Learn more' }),
+        ]),
+      ]),
+    ]),
+    [0, 0, 0],
+  );
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('div', {}, [
+          n('a', { classes: ['css-9z8y7x'], text: 'Learn more' }),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'a.css-1a2b3c');
+  assert.equal(r.verdict, 'unclear');
+});
+
 test('ancestor id renamed, selector relies on it -> unclear', () => {
   const before = snap(baselineTree(), [0, 0, 0]);
   const after = snap(

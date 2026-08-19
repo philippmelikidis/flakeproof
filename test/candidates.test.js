@@ -42,6 +42,12 @@ test('queryTree resolves supported selector forms', () => {
   assert.equal(queryTree(t, 'a:hover'), null, 'unsupported syntax must return null, not guess');
 });
 
+test('queryTree fails closed on an empty or blank selector', () => {
+  const t = tree();
+  assert.equal(queryTree(t, ''), null);
+  assert.equal(queryTree(t, '   '), null);
+});
+
 test('candidatesFor prefers id and testid, drops non-unique candidates', () => {
   const t = tree();
   const ctaPath = [0, 0, 1]; // body > header > a#cta
