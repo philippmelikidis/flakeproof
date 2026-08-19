@@ -143,5 +143,5 @@ export function classifyDelta(baseline, current, anchorSelector) {
     if (cosmetic.length && !semantic.length) verdict = 'cosmetic';
   }
 
-  return { verdict, reasons: [...semantic, ...cosmetic, ...ambiguous], match: { score: match.score } };
+  return { verdict, reasons: [...semantic, ...cosmetic, ...ambiguous], match: { score: match.score, path: b.path } };
 }
