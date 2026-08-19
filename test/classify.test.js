@@ -166,14 +166,13 @@ test('ancestor hashed class renamed, selector relies on it -> cosmetic', () => {
   assert.equal(r.verdict, 'cosmetic');
 });
 
-test('weak-identity element (no id/text/href of its own) survives a cosmetic ' +
-  'change but drops below match confidence -> unclear, not semantic', () => {
+test('weak-identity element (no id/text/href of its own) is now re-identified via locality', () => {
   // A bare <li> whose only identity is tag + classes (its text lives in the
-  // child <a>) cannot score above findBestMatch's default threshold even
-  // when nothing meaningful changed - see src/triage/match.js. Losing a
-  // matched-on class further dilutes the class-overlap score. classifyDelta
-  // must not read "no confident match" as "confirmed removed" while other
-  // <li> siblings are still present.
+  // child <a>) is now lifted above the match threshold by locality bonus in
+  // phase 1. The locality term and child signature let it match despite weak
+  // identity. The match is found, but the selector 'li.css-1a2b3c' provides
+  // no signal about what changed (the class is still present), so verdict is
+  // unclear. This prevents false semantic classification.
   const navTree = () =>
     n('html', {}, [
       n('body', {}, [
@@ -206,7 +205,7 @@ test('weak-identity element (no id/text/href of its own) survives a cosmetic ' +
   );
   const r = classifyDelta(before, after, 'li.css-1a2b3c');
   assert.equal(r.verdict, 'unclear');
-  assert.equal(r.match, null);
+  assert.ok(r.match, 'locality must now enable matching of bare li');
 });
 
 test('ancestor id renamed, selector relies on it -> unclear', () => {
