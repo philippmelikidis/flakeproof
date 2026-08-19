@@ -2,10 +2,10 @@
 //   cosmetic: the selector broke on a meaning-free coupling (fragile test).
 //   semantic: meaning changed or vanished (probable real regression).
 //   unclear: mixed or missing evidence, never guess.
-import { nodeAt, findNode } from './tree.js';
+import { nodeAt, findNode, ancestorsOf } from './tree.js';
 import { findBestMatch } from './match.js';
 
-const HASHED_CLASS =
+export const HASHED_CLASS =
   /^(?:css|sc|jsx|svelte)-[a-z0-9]+$|^_?ng(?:content|host)-|^[a-z][\w-]*__[a-z0-9]{5,}$/i;
 
 export function selectorFeatures(selector) {
@@ -15,19 +15,6 @@ export function selectorFeatures(selector) {
     texts: [...selector.matchAll(/:(?:text|text-is|has-text)\(["']?(.+?)["']?\)/g)].map((m) => m[1]),
     structural: /[>~+]|:nth-/.test(selector),
   };
-}
-
-// Collects the ancestor nodes along a path, excluding the target/matched
-// node itself (i.e. root down to the parent of the node at `path`).
-function ancestorsOf(tree, path) {
-  const out = [];
-  let node = tree;
-  for (const i of path) {
-    out.push(node);
-    node = node.children?.[i];
-    if (!node) break;
-  }
-  return out;
 }
 
 export function classifyDelta(baseline, current, anchorSelector) {
@@ -150,11 +137,28 @@ export function classifyDelta(baseline, current, anchorSelector) {
     semantic.push(`href changed: "${target.attrs.href ?? ''}" -> "${b.attrs.href ?? ''}"`);
   }
 
+  // A shrunken sibling set next to cosmetic-only evidence is indistinguishable
+  // from the anchor itself having been removed and a sibling sliding into its
+  // place, so it must not settle on a cosmetic verdict.
+  // After a wrapper insertion the "parent" at the matched path is a
+  // different node (the wrapper itself), so comparing its child count
+  // against the baseline parent's is meaningless. Only run this guard when
+  // the anchor's depth is unchanged, so wrapper-insertion cases (a purely
+  // cosmetic depth change) are excluded and fall through to a cosmetic
+  // verdict instead of being hedged to ambiguous.
+  if (cosmetic.length && b.path.length === target.path.length) {
+    const baselineParent = baseline.anchorPath.length > 0 ? nodeAt(baseline.tree, baseline.anchorPath.slice(0, -1)) : null;
+    const currentParent = b.path.length > 0 ? nodeAt(current.tree, b.path.slice(0, -1)) : null;
+    if (baselineParent && currentParent && currentParent.children.length < baselineParent.children.length) {
+      ambiguous.push('a sibling of the anchor disappeared; cannot tell a rename from a removal');
+    }
+  }
+
   let verdict = 'unclear';
   if (!ambiguous.length) {
     if (semantic.length && !cosmetic.length) verdict = 'semantic';
     if (cosmetic.length && !semantic.length) verdict = 'cosmetic';
   }
 
-  return { verdict, reasons: [...semantic, ...cosmetic, ...ambiguous], match: { score: match.score } };
+  return { verdict, reasons: [...semantic, ...cosmetic, ...ambiguous], match: { score: match.score, path: b.path } };
 }

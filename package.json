@@ -11,6 +11,7 @@
     "spike": "node spikes/run-phase0.js",
     "lint": "eslint ."
   },
+  "bin": { "flakeproof": "bin/flakeproof.js" },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",

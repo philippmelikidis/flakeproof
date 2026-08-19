@@ -166,14 +166,13 @@ test('ancestor hashed class renamed, selector relies on it -> cosmetic', () => {
   assert.equal(r.verdict, 'cosmetic');
 });
 
-test('weak-identity element (no id/text/href of its own) survives a cosmetic ' +
-  'change but drops below match confidence -> unclear, not semantic', () => {
+test('weak-identity element (no id/text/href of its own) is now re-identified via locality', () => {
   // A bare <li> whose only identity is tag + classes (its text lives in the
-  // child <a>) cannot score above findBestMatch's default threshold even
-  // when nothing meaningful changed - see src/triage/match.js. Losing a
-  // matched-on class further dilutes the class-overlap score. classifyDelta
-  // must not read "no confident match" as "confirmed removed" while other
-  // <li> siblings are still present.
+  // child <a>) is now lifted above the match threshold by locality bonus in
+  // phase 1. The locality term and child signature let it match despite weak
+  // identity. The match is found, but the selector 'li.css-1a2b3c' provides
+  // no signal about what changed (the class is still present), so verdict is
+  // unclear. This prevents false semantic classification.
   const navTree = () =>
     n('html', {}, [
       n('body', {}, [
@@ -206,7 +205,39 @@ test('weak-identity element (no id/text/href of its own) survives a cosmetic ' +
   );
   const r = classifyDelta(before, after, 'li.css-1a2b3c');
   assert.equal(r.verdict, 'unclear');
-  assert.equal(r.match, null);
+  assert.ok(r.match, 'locality must now enable matching of bare li');
+});
+
+test('sibling slide-in with equal text next to cosmetic evidence -> unclear', () => {
+  // Two <a class="css-*">Learn more</a> siblings in the baseline; the anchor
+  // is the first (css-1a2b3c). In "current" only the second sibling
+  // (css-9z8y7x) remains, at the same position the anchor used to occupy.
+  // The class-rename evidence alone would say cosmetic, but the shrunken
+  // sibling set means this is indistinguishable from the anchor having been
+  // removed and its sibling sliding into place.
+  const before = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('div', {}, [
+          n('a', { classes: ['css-1a2b3c'], text: 'Learn more' }),
+          n('a', { classes: ['css-9z8y7x'], text: 'Learn more' }),
+        ]),
+      ]),
+    ]),
+    [0, 0, 0],
+  );
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('div', {}, [
+          n('a', { classes: ['css-9z8y7x'], text: 'Learn more' }),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'a.css-1a2b3c');
+  assert.equal(r.verdict, 'unclear');
 });
 
 test('ancestor id renamed, selector relies on it -> unclear', () => {
