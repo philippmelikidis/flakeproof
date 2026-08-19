@@ -19,6 +19,7 @@ await mkdir(OUT, { recursive: true });
 
 const browser = await chromium.launch();
 let n = 0;
+const skips = [];
 
 for (const [label, catalog] of [['cosmetic', cosmeticMutations], ['semantic', semanticMutations]]) {
   for (const mutation of catalog) {
@@ -26,9 +27,17 @@ for (const [label, catalog] of [['cosmetic', cosmeticMutations], ['semantic', se
       const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
       await page.goto(URL_LIVE, { waitUntil: 'domcontentloaded' });
       const baseline = await page.evaluate(serializeDom, selector);
-      if (!baseline.anchorPath) { await page.close(); continue; }
+      if (!baseline.anchorPath) {
+        skips.push({ label, mutationId: mutation.id, selector, why: 'anchor not on page' });
+        await page.close();
+        continue;
+      }
       const applied = await page.evaluate(mutation.apply, selector);
-      if (!applied) { await page.close(); continue; }
+      if (!applied) {
+        skips.push({ label, mutationId: mutation.id, selector, why: 'mutation not applicable' });
+        await page.close();
+        continue;
+      }
       const current = await page.evaluate(serializeDom, null);
       n += 1;
       const name = `${String(n).padStart(2, '0')}-${label}-${mutation.id}.json`;
@@ -41,4 +50,5 @@ for (const [label, catalog] of [['cosmetic', cosmeticMutations], ['semantic', se
 }
 
 await browser.close();
-console.log(`${n} live pairs captured`);
+await writeFile(new URL('_skips.json', OUT), JSON.stringify(skips), 'utf8');
+console.log(`${n} live pairs captured, ${skips.length} skipped`);

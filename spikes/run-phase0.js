@@ -63,12 +63,20 @@ await server.close();
 // Committed live pairs (created manually via spikes/capture-live.js).
 try {
   for (const file of await readdir(new URL('./live-pairs/', import.meta.url))) {
+    if (file.startsWith('_')) continue;
     if (!file.endsWith('.json')) continue;
     const pair = JSON.parse(await readFile(new URL(`./live-pairs/${file}`, import.meta.url), 'utf8'));
     const { verdict, reasons } = classifyDelta(pair.baseline, pair.current, pair.selector);
     rows.push({ source: 'live', label: pair.label, mutationId: pair.mutationId, selector: pair.selector, verdict, reasons });
   }
 } catch { /* no live pairs yet */ }
+
+try {
+  const liveSkips = JSON.parse(
+    await readFile(new URL('./live-pairs/_skips.json', import.meta.url), 'utf8'),
+  );
+  skipped.push(...liveSkips);
+} catch { /* no live skips recorded */ }
 
 const misclassified = rows.filter(
   (r) => (r.label === 'cosmetic' && r.verdict === 'semantic')
