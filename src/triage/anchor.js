@@ -5,6 +5,7 @@
 function locatorFromLine(line) {
   const start = line.indexOf("locator('");
   if (start === -1) return null;
+  if (line.indexOf("locator('", start + "locator('".length) !== -1) return null;
   const end = line.lastIndexOf("')");
   if (end <= start) return null;
   return line.slice(start + "locator('".length, end);

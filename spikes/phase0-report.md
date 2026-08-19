@@ -71,4 +71,4 @@ The abstention rate is the main quality lever to work on, not a blocker: the cla
 
 1. Matcher improvements for weak-identity elements, for example contextual scoring that includes ancestor and child evidence, so bare li/div elements can be re-identified.
 2. Additional evidence sources for the no-signals cases, so more cosmetic mutations produce a positive cosmetic verdict instead of an abstention.
-3. Anchor-selection guidance for sites that duplicate DOM regions (light/dark header variants): prefer ids unique across variants or visibility-filtered selectors.
+3. A locality term in the matcher (path distance or lowest common ancestor depth), so duplicated DOM regions such as light/dark header variants cannot capture the match. The final review showed the matcher twice locked onto the pristine twin of a mutated element on the live site, which neutralized the semantic evidence; both cases were saved from misclassification only by the ambiguous-evidence gate on the ancestor id. Anchor-selection guidance helps but does not fix the underlying gap.

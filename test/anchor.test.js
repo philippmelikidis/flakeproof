@@ -49,3 +49,9 @@ test('no locator present: assertion failure', () => {
 test('empty input', () => {
   assert.deepEqual(extractAnchor(''), { selector: null, kind: 'unknown' });
 });
+
+test('chained locator line yields no selector instead of a spliced one', () => {
+  const a = extractAnchor("Error: locator.click: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator('#a').locator('b')");
+  assert.equal(a.selector, null);
+  assert.equal(a.kind, 'timeout');
+});

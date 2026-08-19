@@ -61,15 +61,18 @@ await browser.close();
 await server.close();
 
 // Committed live pairs (created manually via spikes/capture-live.js).
+let liveFiles = [];
 try {
-  for (const file of await readdir(new URL('./live-pairs/', import.meta.url))) {
-    if (file.startsWith('_')) continue;
-    if (!file.endsWith('.json')) continue;
-    const pair = JSON.parse(await readFile(new URL(`./live-pairs/${file}`, import.meta.url), 'utf8'));
-    const { verdict, reasons } = classifyDelta(pair.baseline, pair.current, pair.selector);
-    rows.push({ source: 'live', label: pair.label, mutationId: pair.mutationId, selector: pair.selector, verdict, reasons });
-  }
+  liveFiles = await readdir(new URL('./live-pairs/', import.meta.url));
 } catch { /* no live pairs yet */ }
+
+for (const file of liveFiles) {
+  if (file.startsWith('_')) continue;
+  if (!file.endsWith('.json')) continue;
+  const pair = JSON.parse(await readFile(new URL(`./live-pairs/${file}`, import.meta.url), 'utf8'));
+  const { verdict, reasons } = classifyDelta(pair.baseline, pair.current, pair.selector);
+  rows.push({ source: 'live', label: pair.label, mutationId: pair.mutationId, selector: pair.selector, verdict, reasons });
+}
 
 try {
   const liveSkips = JSON.parse(
@@ -111,6 +114,17 @@ ${unclear.length === 0 ? 'None.' : unclear.map((r) => `- ${r.mutationId} at \`${
 ${skipped.length === 0 ? 'None.' : skipped.map((s) => `- ${s.mutationId} at \`${s.selector}\`: ${s.why}`).join('\n')}
 `;
 
-await writeFile(new URL('./phase0-report.md', import.meta.url), report, 'utf8');
-console.log(report);
+// Preserve any hand-appended checkpoint assessment from a previous run
+// instead of clobbering it with the freshly generated report.
+let finalReport = report;
+try {
+  const existing = await readFile(new URL('./phase0-report.md', import.meta.url), 'utf8');
+  const idx = existing.search(/^## Checkpoint assessment/m);
+  if (idx !== -1) {
+    finalReport = `${report}\n${existing.slice(idx)}`;
+  }
+} catch { /* no existing report yet */ }
+
+await writeFile(new URL('./phase0-report.md', import.meta.url), finalReport, 'utf8');
+console.log(finalReport);
 process.exit(misclassified.length > 0 ? 1 : 0);

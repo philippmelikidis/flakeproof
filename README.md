@@ -11,7 +11,7 @@ Both problems have the same root cause: how tightly a test is coupled to the DOM
 |---|---|---|
 | Semantic | button text changed, link target changed, element removed | go red |
 | Cosmetic | class renamed, wrapper div added, element moved | stay green |
-| Temporal | element appears 800 ms later | stay green |
+| Temporal (planned) | element appears 800 ms later | stay green |
 
 A test that reacts wrongly is caught: green under semantic changes means blind, red under cosmetic or timing changes means fragile.
 
@@ -21,7 +21,7 @@ The mutations run inside the browser, not inside the test runner, so the core is
 
 ## Status
 
-Design settled, phase 0 (feasibility spikes) in progress. See the spec in `docs/superpowers/specs/` and the plan in `docs/superpowers/plans/`.
+Phase 0 (feasibility spikes) is complete: 0 misclassifications across 37 fixture and live cases, with a documented abstention rate, and a GO decision for phase 1 (red triage). Results are in `spikes/phase0-report.md`, reproducible via `npm run spike`. Spec and plan live in `docs/superpowers/`.
 
 ## Development
 

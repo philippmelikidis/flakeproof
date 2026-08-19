@@ -1,7 +1,7 @@
-// Classifies the DOM delta at a failed test's anchor:
-//   cosmetic  – the selector broke on a meaning-free coupling (fragile test)
-//   semantic  – meaning changed or vanished (probable real regression)
-//   unclear   – mixed or missing evidence; never guess.
+// Classifies the DOM delta at a failed test's anchor.
+//   cosmetic: the selector broke on a meaning-free coupling (fragile test).
+//   semantic: meaning changed or vanished (probable real regression).
+//   unclear: mixed or missing evidence, never guess.
 import { nodeAt, findNode } from './tree.js';
 import { findBestMatch } from './match.js';
 
