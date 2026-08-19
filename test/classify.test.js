@@ -166,6 +166,49 @@ test('ancestor hashed class renamed, selector relies on it -> cosmetic', () => {
   assert.equal(r.verdict, 'cosmetic');
 });
 
+test('weak-identity element (no id/text/href of its own) survives a cosmetic ' +
+  'change but drops below match confidence -> unclear, not semantic', () => {
+  // A bare <li> whose only identity is tag + classes (its text lives in the
+  // child <a>) cannot score above findBestMatch's default threshold even
+  // when nothing meaningful changed - see src/triage/match.js. Losing a
+  // matched-on class further dilutes the class-overlap score. classifyDelta
+  // must not read "no confident match" as "confirmed removed" while other
+  // <li> siblings are still present.
+  const navTree = () =>
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [
+            n('a', { text: 'Products', attrs: { href: '/products/' } }),
+          ]),
+          n('li', { classes: ['css-9z8y7x', 'nav-item'] }, [
+            n('a', { text: 'Solutions', attrs: { href: '/solutions/' } }),
+          ]),
+        ]),
+      ]),
+    ]);
+  // anchor path to the first `li`: [0, 0, 0]  (body > ul > li)
+  const before = snap(navTree(), [0, 0, 0]);
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'fp-added-class', 'nav-item'] }, [
+            n('a', { text: 'Products', attrs: { href: '/products/' } }),
+          ]),
+          n('li', { classes: ['css-9z8y7x', 'nav-item'] }, [
+            n('a', { text: 'Solutions', attrs: { href: '/solutions/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'li.css-1a2b3c');
+  assert.equal(r.verdict, 'unclear');
+  assert.equal(r.match, null);
+});
+
 test('ancestor id renamed, selector relies on it -> unclear', () => {
   const before = snap(baselineTree(), [0, 0, 0]);
   const after = snap(

@@ -2,7 +2,7 @@
 //   cosmetic  – the selector broke on a meaning-free coupling (fragile test)
 //   semantic  – meaning changed or vanished (probable real regression)
 //   unclear   – mixed or missing evidence; never guess.
-import { nodeAt } from './tree.js';
+import { nodeAt, findNode } from './tree.js';
 import { findBestMatch } from './match.js';
 
 const HASHED_CLASS =
@@ -38,6 +38,30 @@ export function classifyDelta(baseline, current, anchorSelector) {
 
   const match = findBestMatch(current.tree, target);
   if (!match) {
+    // No candidate scored high enough to count as a confident match. If the
+    // target has a strong identity of its own (id, own text, accessible
+    // name, or href), a failed match is solid evidence of removal: were the
+    // element still there with those markers intact, it would have scored
+    // well above threshold. But an element whose only identity is tag +
+    // classes (no id/text/name/href of its own, e.g. a bare <li> wrapping a
+    // link) can *never* clear the confidence threshold on class overlap
+    // alone (see src/triage/match.js) - for those, a purely cosmetic change
+    // (an added class dilutes overlap, a move changes sibling position)
+    // produces the exact same "no match" signal as a real removal. Only
+    // hedge to 'unclear' for that weak-identity case, and only when other
+    // elements of the same tag still exist to plausibly be it.
+    const weakIdentity = !target.id && !target.text && !target.name && !target.attrs.href;
+    const sameTagSurvives = weakIdentity && findNode(current.tree, (n) => n.tag === target.tag) !== null;
+    if (sameTagSurvives) {
+      return {
+        verdict: 'unclear',
+        reasons: [
+          `no element matched <${target.tag}${target.id ? '#' + target.id : ''}> with enough confidence, ` +
+            `but other <${target.tag}> elements remain; cannot tell a rename/move from a removal`,
+        ],
+        match: null,
+      };
+    }
     return {
       verdict: 'semantic',
       reasons: [`element <${target.tag}${target.id ? '#' + target.id : ''}> no longer exists in current build`],
