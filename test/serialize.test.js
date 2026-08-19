@@ -44,3 +44,20 @@ test('serializeDom returns null anchorPath for unmatched selector', async () => 
     await server.close();
   }
 });
+
+test('serializeDom emits explicit and implicit roles', async () => {
+  const server = await startFixtureServer();
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(server.url);
+    const snap = await page.evaluate(serializeDom, null);
+    const nav = findNode(snap.tree, (x) => x.tag === 'nav');
+    assert.equal(nav.role, 'navigation');
+    const cta = findNode(snap.tree, (x) => x.id === 'cta');
+    assert.equal(cta.role, 'link');
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});

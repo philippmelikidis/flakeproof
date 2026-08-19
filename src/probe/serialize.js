@@ -3,6 +3,12 @@
 export function serializeDom(anchorSelector) {
   const MAX_TEXT = 120;
 
+  const IMPLICIT_ROLES = {
+    a: 'link', button: 'button', nav: 'navigation', header: 'banner',
+    footer: 'contentinfo', main: 'main', ul: 'list', ol: 'list',
+    li: 'listitem', img: 'img', form: 'form', table: 'table',
+  };
+
   function ownText(el) {
     let t = '';
     for (const n of el.childNodes) {
@@ -39,6 +45,7 @@ export function serializeDom(anchorSelector) {
       attrs,
       text: ownText(el),
       name: accessibleName(el),
+      role: el.getAttribute('role') || IMPLICIT_ROLES[el.tagName.toLowerCase()] || '',
       path,
       children,
     };
