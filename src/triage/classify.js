@@ -17,6 +17,19 @@ export function selectorFeatures(selector) {
   };
 }
 
+// Collects the ancestor nodes along a path, excluding the target/matched
+// node itself (i.e. root down to the parent of the node at `path`).
+function ancestorsOf(tree, path) {
+  const out = [];
+  let node = tree;
+  for (const i of path) {
+    out.push(node);
+    node = node.children?.[i];
+    if (!node) break;
+  }
+  return out;
+}
+
 export function classifyDelta(baseline, current, anchorSelector) {
   const target = baseline.anchorPath ? nodeAt(baseline.tree, baseline.anchorPath) : null;
   if (!target) {
@@ -36,20 +49,57 @@ export function classifyDelta(baseline, current, anchorSelector) {
   const b = match.node;
   const cosmetic = [];
   const semantic = [];
+  const ambiguous = [];
 
-  // Selector-relied classes that vanished from the element.
+  // Selector-relied classes that vanished from the element itself. A
+  // build-tool hash going away is almost certainly a rename (cosmetic); any
+  // other class loss could just as well be a real state change, so we can't
+  // guess - it's ambiguous.
   for (const cls of feat.classes) {
     if (target.classes.includes(cls) && !b.classes.includes(cls)) {
-      const label = HASHED_CLASS.test(cls) ? 'build-generated class' : 'class';
-      cosmetic.push(`selector relies on ${label} ".${cls}" which is gone from the element`);
+      if (HASHED_CLASS.test(cls)) {
+        cosmetic.push(`selector relies on build-generated class ".${cls}" which is gone from the element`);
+      } else {
+        ambiguous.push(
+          `selector relies on class ".${cls}" which is gone; cannot tell a rename from a real state change`,
+        );
+      }
     }
   }
 
-  // Selector-relied ids that vanished.
+  // Selector-relied ids that vanished from the element itself. Ids get no
+  // hash heuristic, so this is always ambiguous.
   for (const id of feat.ids) {
     if (target.id === id && b.id !== id) {
-      cosmetic.push(`selector relies on id "#${id}" which is gone from the element`);
+      ambiguous.push(`selector relies on id "#${id}" which is gone; cannot tell a rename from a real state change`);
     }
+  }
+
+  // Selector-relied ids/classes that were never on the target itself but
+  // sat on an ancestor. If a baseline ancestor had it and neither the
+  // matched node nor any of its current ancestors have it anymore, the
+  // selector's ancestor coupling broke.
+  const baselineAncestors = ancestorsOf(baseline.tree, baseline.anchorPath);
+  const currentAncestors = ancestorsOf(current.tree, match.node.path);
+
+  for (const cls of feat.classes) {
+    if (target.classes.includes(cls)) continue; // handled above
+    if (!baselineAncestors.some((a) => a.classes.includes(cls))) continue;
+    if (b.classes.includes(cls) || currentAncestors.some((a) => a.classes.includes(cls))) continue;
+    if (HASHED_CLASS.test(cls)) {
+      cosmetic.push(`selector relies on build-generated class ".${cls}" which an ancestor lost`);
+    } else {
+      ambiguous.push(
+        `selector relies on class ".${cls}" which an ancestor lost; cannot tell a rename from a real state change`,
+      );
+    }
+  }
+
+  for (const id of feat.ids) {
+    if (target.id === id) continue; // handled above
+    if (!baselineAncestors.some((a) => a.id === id)) continue;
+    if (b.id === id || currentAncestors.some((a) => a.id === id)) continue;
+    ambiguous.push(`selector relies on id "#${id}" which an ancestor lost; cannot tell a rename from a real state change`);
   }
 
   // Selector-relied text that vanished.
@@ -77,8 +127,10 @@ export function classifyDelta(baseline, current, anchorSelector) {
   }
 
   let verdict = 'unclear';
-  if (semantic.length && !cosmetic.length) verdict = 'semantic';
-  if (cosmetic.length && !semantic.length) verdict = 'cosmetic';
+  if (!ambiguous.length) {
+    if (semantic.length && !cosmetic.length) verdict = 'semantic';
+    if (cosmetic.length && !semantic.length) verdict = 'cosmetic';
+  }
 
-  return { verdict, reasons: [...semantic, ...cosmetic], match: { score: match.score } };
+  return { verdict, reasons: [...semantic, ...cosmetic, ...ambiguous], match: { score: match.score } };
 }

@@ -124,3 +124,60 @@ test('anchor missing in baseline -> unclear', () => {
   const r = classifyDelta(before, after, '#never-existed');
   assert.equal(r.verdict, 'unclear');
 });
+
+test('meaningful class lost from the element, selector relies on it -> unclear', () => {
+  const before = snap(baselineTree(), [0, 0, 0]);
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('header', { id: 'site-header' }, [
+          n('a', { id: 'cta', classes: ['css-1a2b3c'], text: 'Contact us', attrs: { href: '/contact/' } }),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'a.btn');
+  assert.equal(r.verdict, 'unclear');
+});
+
+test('ancestor hashed class renamed, selector relies on it -> cosmetic', () => {
+  const ancestorTree = () =>
+    n('html', {}, [
+      n('body', {}, [
+        n('li', { classes: ['css-1a2b3c'] }, [
+          n('a', { id: 'cta', classes: ['btn'], text: 'Contact us', attrs: { href: '/contact/' } }),
+        ]),
+      ]),
+    ]);
+  // anchor path to the `a` element: [0, 0, 0]  (body > li > a)
+  const before = snap(ancestorTree(), [0, 0, 0]);
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('li', { classes: ['css-zz99xx'] }, [
+          n('a', { id: 'cta', classes: ['btn'], text: 'Contact us', attrs: { href: '/contact/' } }),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'li.css-1a2b3c > a');
+  assert.equal(r.verdict, 'cosmetic');
+});
+
+test('ancestor id renamed, selector relies on it -> unclear', () => {
+  const before = snap(baselineTree(), [0, 0, 0]);
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('header', { id: 'page-header' }, [
+          n('a', { id: 'cta', classes: ['btn', 'css-1a2b3c'], text: 'Contact us', attrs: { href: '/contact/' } }),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, '#site-header a');
+  assert.equal(r.verdict, 'unclear');
+});
