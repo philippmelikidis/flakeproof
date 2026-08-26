@@ -9,7 +9,7 @@ const USAGE = `usage:
   flakeproof snapshot <url> [--anchor <selector>] --out <file.json>
   flakeproof triage --baseline <file.json> (--error-file <file> | --robot-xml <output.xml>)
                     (--current-url <url> | --current <file.json>)
-                    [--rerun-cmd <command>] [--reruns <n>] [--json] [--out <file.md>]`;
+                    [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md>]`;
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
@@ -39,6 +39,7 @@ async function main() {
         current: { type: 'string' },
         'rerun-cmd': { type: 'string' },
         reruns: { type: 'string' },
+        temporal: { type: 'boolean', default: false },
         json: { type: 'boolean', default: false },
         out: { type: 'string' },
       },
@@ -53,6 +54,7 @@ async function main() {
       currentPath: values.current,
       rerunCommand: values['rerun-cmd'],
       reruns: values.reruns ? Number(values.reruns) : undefined,
+      temporal: values.temporal,
     });
     const output = values.json ? JSON.stringify(result, null, 2) : renderReport(result);
     if (values.out) {
