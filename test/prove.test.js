@@ -47,3 +47,23 @@ test('positional candidate survives renames but not reordering', async () => {
     await server.close();
   }
 });
+
+test('text candidate survives every cosmetic mutation on the nav link', async () => {
+  const server = await startFixtureServer();
+  try {
+    const snap = await anchorPathFor(server.url, 'li.css-1a2b3c > a');
+    const candidates = candidatesFor(snap.tree, snap.anchorPath);
+    const textCand = candidates.find((c) => c.kind === 'text');
+    assert.ok(textCand, 'nav link must get a text candidate');
+    assert.equal(textCand.selector, 'text="Products"');
+
+    const proven = await proveCandidates(server.url, snap.anchorPath, candidates);
+    const top = proven[0];
+    assert.ok(top.kind === 'text' || top.kind === 'role', `expected a text/role candidate on top, got ${top.selector}`);
+    assert.equal(top.uniqueInCurrent, true);
+    assert.equal(top.survived, top.applied);
+    assert.ok(top.applied >= 3, `expected at least 3 applicable mutations, got ${top.applied}`);
+  } finally {
+    await server.close();
+  }
+});
