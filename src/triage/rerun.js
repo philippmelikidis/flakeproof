@@ -21,5 +21,6 @@ export async function rerunStats(command, runs = 3, { env = {} } = {}) {
     exitCodes.push(code);
   }
   const failures = exitCodes.filter((c) => c !== 0).length;
-  return { runs, failures, exitCodes, nondeterministic: failures > 0 && failures < runs };
+  const commandBroken = exitCodes.length > 0 && exitCodes.every((c) => c === -1 || c === 127);
+  return { runs, failures, exitCodes, nondeterministic: failures > 0 && failures < runs, commandBroken };
 }

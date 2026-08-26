@@ -116,7 +116,11 @@ export async function triage(opts) {
       }
       return { verdict: 'nondeterministic', anchor, testId, rerun, temporal, classification: null, recommendation: null, notes };
     }
-    notes.push('test failed on every rerun; deterministic failure');
+    if (rerun.commandBroken) {
+      notes.push('every rerun exited with a spawn error or command-not-found; the rerun command itself looks broken and the rerun statistics are not meaningful');
+    } else {
+      notes.push('test failed on every rerun; deterministic failure');
+    }
   }
 
   const baseline = JSON.parse(await readFile(opts.baselinePath, 'utf8'));

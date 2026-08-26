@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, copyFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,9 +30,11 @@ test('all-green reruns yield nondeterministic without touching the baseline', as
 });
 
 test('identical baseline and current yield unclear, never a guess', async () => {
-  const server = await startFixtureServer();
+  let server = null;
+  let dir = null;
   try {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
     const baselinePath = join(dir, 'baseline.json');
     await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
     const result = await triage({
@@ -42,7 +44,8 @@ test('identical baseline and current yield unclear, never a guess', async () => 
     });
     assert.equal(result.verdict, 'unclear');
   } finally {
-    await server.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -52,18 +55,21 @@ test('leading body script does not derail anchor resolution', async () => {
   // tree also contain it, at the same index the html anchor resolution
   // sees. Build a temp copy of the fixture page with a script as the
   // first child of <body> and serve that.
-  const fixtureDir = await mkdtemp(join(tmpdir(), 'fp-engine-fixture-'));
-  const originalHtml = await readFile(join(FIXTURE_DIR, 'index.html'), 'utf8');
-  const withLeadingScript = originalHtml.replace(
-    /<body>/i,
-    `<body><script>document.body.insertAdjacentHTML('afterbegin', '<div id="injected"></div>')</script>`,
-  );
-  await writeFile(join(fixtureDir, 'index.html'), withLeadingScript);
-  await copyFile(join(FIXTURE_DIR, 'logo.svg'), join(fixtureDir, 'logo.svg'));
-
-  const server = await startFixtureServer({ root: fixtureDir });
+  let fixtureDir = null;
+  let server = null;
+  let dir = null;
   try {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    fixtureDir = await mkdtemp(join(tmpdir(), 'fp-engine-fixture-'));
+    const originalHtml = await readFile(join(FIXTURE_DIR, 'index.html'), 'utf8');
+    const withLeadingScript = originalHtml.replace(
+      /<body>/i,
+      `<body><script>document.body.insertAdjacentHTML('afterbegin', '<div id="injected"></div>')</script>`,
+    );
+    await writeFile(join(fixtureDir, 'index.html'), withLeadingScript);
+    await copyFile(join(FIXTURE_DIR, 'logo.svg'), join(fixtureDir, 'logo.svg'));
+
+    server = await startFixtureServer({ root: fixtureDir });
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
     const baselinePath = join(dir, 'baseline.json');
     await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
     const result = await triage({
@@ -77,14 +83,18 @@ test('leading body script does not derail anchor resolution', async () => {
       `expected anchor resolution to stay aligned despite the leading script, got notes: ${JSON.stringify(result.notes)}`,
     );
   } finally {
-    await server.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
+    if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
   }
 });
 
 test('html/tree divergence is caught by the fidelity check', async () => {
-  const server = await startFixtureServer();
+  let server = null;
+  let dir = null;
   try {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
     const baselinePath = join(dir, 'baseline.json');
     const baseline = await captureSnapshot(server.url);
     // documentElement children: head is index 0, body is index 1. Remove
@@ -104,14 +114,17 @@ test('html/tree divergence is caught by the fidelity check', async () => {
       `expected a fidelity-check note, got: ${JSON.stringify(result.notes)}`,
     );
   } finally {
-    await server.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
 
 test('robot-xml failure with an anchor that does not resolve in the baseline is unclear', async () => {
-  const server = await startFixtureServer();
+  let server = null;
+  let dir = null;
   try {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
     const baselinePath = join(dir, 'baseline.json');
     await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
     const result = await triage({
@@ -127,14 +140,17 @@ test('robot-xml failure with an anchor that does not resolve in the baseline is 
       `expected a note about the anchor not resolving, got: ${JSON.stringify(result.notes)}`,
     );
   } finally {
-    await server.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
 
 test('a strict mode violation is surfaced as a fragility note', async () => {
-  const server = await startFixtureServer();
+  let server = null;
+  let dir = null;
   try {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
     const baselinePath = join(dir, 'baseline.json');
     await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
     const errorText = await readFile(new URL('./fixtures/errors/pw-strict-violation.txt', import.meta.url), 'utf8');
@@ -142,14 +158,17 @@ test('a strict mode violation is surfaced as a fragility note', async () => {
     assert.equal(result.anchor.kind, 'ambiguous');
     assert.ok(result.notes.some((note) => note.includes('strict mode violation')));
   } finally {
-    await server.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
 
 test('temporal requested without a rerun command is noted, not silently skipped', async () => {
-  const server = await startFixtureServer();
+  let server = null;
+  let dir = null;
   try {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
     const baselinePath = join(dir, 'baseline.json');
     await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
     const result = await triage({
@@ -161,72 +180,88 @@ test('temporal requested without a rerun command is noted, not silently skipped'
     assert.ok(result.verdict, 'a verdict must still be produced');
     assert.ok(result.notes.some((note) => note.includes('temporal probing requires a rerun command')));
   } finally {
-    await server.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
 
 test('temporal probe turns a green-on-rerun failure into a reproducible finding', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
-  const script = join(dir, 'timing.cjs');
-  await writeFile(
-    script,
-    'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
-      'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
-      'if(ms>0&&ack)fs.writeFileSync(ack,"injected");' +
-      'process.exit(ms>=500?1:0);',
-  );
-  const result = await triage({
-    errorText: timeoutError('#cta'),
-    rerunCommand: `node ${script}`,
-    reruns: 2,
-    temporal: true,
-  });
-  assert.equal(result.verdict, 'nondeterministic');
-  assert.equal(result.temporal.reproduced, true);
-  assert.equal(result.temporal.delay, 500);
-  assert.equal(result.temporal.injected, true);
-  assert.ok(result.notes.some((note) => note.includes('likely a missing wait')));
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'timing.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,"injected");' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, true);
+    assert.equal(result.temporal.delay, 500);
+    assert.equal(result.temporal.injected, true);
+    assert.ok(result.notes.some((note) => note.includes('likely a missing wait')));
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('a missing inject wrapper is named instead of blaming timing', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
-  const script = join(dir, 'silent.cjs');
-  await writeFile(
-    script,
-    'const ms = Number(process.env.FLAKEPROOF_TEMPORAL_MS || 0); process.exit(ms >= 500 ? 1 : 0);',
-  );
-  const result = await triage({
-    errorText: timeoutError('#cta'),
-    rerunCommand: `node ${script}`,
-    reruns: 2,
-    temporal: true,
-  });
-  assert.equal(result.verdict, 'nondeterministic');
-  assert.equal(result.temporal.injected, false);
-  assert.ok(result.notes.some((note) => note.includes('never acknowledged')), JSON.stringify(result.notes));
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'silent.cjs');
+    await writeFile(
+      script,
+      'const ms = Number(process.env.FLAKEPROOF_TEMPORAL_MS || 0); process.exit(ms >= 500 ? 1 : 0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.injected, false);
+    assert.ok(result.notes.some((note) => note.includes('never acknowledged')), JSON.stringify(result.notes));
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('temporal control abort when baseline is too unstable', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
-  const counterFile = join(dir, 'counter.txt');
-  const script = join(dir, 'alternating.cjs');
-  await writeFile(
-    script,
-    `const fs = require('fs');
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const counterFile = join(dir, 'counter.txt');
+    const script = join(dir, 'alternating.cjs');
+    await writeFile(
+      script,
+      `const fs = require('fs');
 const f = process.env.FP_COUNTER_FILE;
 const n = fs.existsSync(f) ? Number(fs.readFileSync(f, 'utf8')) + 1 : 1;
 fs.writeFileSync(f, String(n));
 process.exit(n % 2 === 1 ? 1 : 0);`,
-  );
-  const result = await triage({
-    errorText: timeoutError('#cta'),
-    rerunCommand: `FP_COUNTER_FILE=${counterFile} node ${script}`,
-    reruns: 2,
-    temporal: true,
-  });
-  assert.equal(result.verdict, 'nondeterministic');
-  assert.ok(result.temporal.control && result.temporal.control.failures > 0);
-  assert.ok(result.notes.some((note) => note.includes('control run without any delay already failed')));
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `FP_COUNTER_FILE=${counterFile} node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.ok(result.temporal.control && result.temporal.control.failures > 0);
+    assert.ok(result.notes.some((note) => note.includes('control run without any delay already failed')));
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('every triage result carries a temporal field', async () => {
@@ -234,4 +269,26 @@ test('every triage result carries a temporal field', async () => {
   assert.equal(result.verdict, 'no-anchor');
   assert.ok('temporal' in result, 'json consumers need a stable shape');
   assert.equal(result.temporal, null);
+});
+
+test('a broken rerun command is named instead of trusted', async () => {
+  let server = null;
+  let dir = null;
+  try {
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const baselinePath = join(dir, 'baseline.json');
+    await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      baselinePath,
+      currentPath: baselinePath,
+      rerunCommand: 'definitely-not-a-command-fp-2b',
+      reruns: 2,
+    });
+    assert.ok(result.notes.some((n) => n.includes('looks broken')), JSON.stringify(result.notes));
+  } finally {
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -5,9 +5,11 @@ import { startFixtureServer } from './helpers/serve.js';
 import { temporalScript } from '../src/probe/temporal.js';
 
 test('temporalScript hides the element and releases it after the delay', async () => {
-  const server = await startFixtureServer();
-  const browser = await chromium.launch();
+  let server = null;
+  let browser = null;
   try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
     const context = await browser.newContext();
     await context.addInitScript(temporalScript('#cta', 800));
     const page = await context.newPage();
@@ -17,7 +19,7 @@ test('temporalScript hides the element and releases it after the delay', async (
     await page.locator('#cta').waitFor({ state: 'visible', timeout: 5000 });
     assert.ok(Date.now() - t0 >= 400, 'must stay hidden for a meaningful part of the delay');
   } finally {
-    await browser.close();
-    await server.close();
+    await browser?.close();
+    await server?.close();
   }
 });

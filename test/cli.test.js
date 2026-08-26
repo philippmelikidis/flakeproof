@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFixtureServer } from './helpers/serve.js';
@@ -38,9 +38,11 @@ test('renderReport does not show empty Timing provocation section', () => {
 });
 
 test('cli snapshot and triage round-trip on the fixture page', async () => {
-  const server = await startFixtureServer();
+  let server = null;
+  let dir = null;
   try {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
     const baseline = join(dir, 'baseline.json');
     const errFile = join(dir, 'error.txt');
     await writeFile(errFile, "TimeoutError: locator.waitFor: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator('#cta') to be visible");
@@ -57,6 +59,7 @@ test('cli snapshot and triage round-trip on the fixture page', async () => {
     assert.equal(result.verdict, 'unclear');
     assert.equal(result.anchor.selector, '#cta');
   } finally {
-    await server.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });

@@ -7,9 +7,11 @@ import { findNode } from '../src/triage/tree.js';
 import { semanticMutations } from '../src/probe/catalogs/semantic.js';
 
 test('semantic mutations change meaning-bearing properties', async () => {
-  const server = await startFixtureServer();
-  const browser = await chromium.launch();
+  let server = null;
+  let browser = null;
   try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
     const checks = {
       'change-text': async (page) => {
         const snap = await page.evaluate(serializeDom, null);
@@ -38,7 +40,7 @@ test('semantic mutations change meaning-bearing properties', async () => {
 
     assert.equal(Object.keys(checks).length, semanticMutations.length);
   } finally {
-    await browser.close();
-    await server.close();
+    await browser?.close();
+    await server?.close();
   }
 });
