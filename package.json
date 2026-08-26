@@ -12,6 +12,10 @@
     "lint": "eslint ."
   },
   "bin": { "flakeproof": "bin/flakeproof.js" },
+  "exports": {
+    ".": "./src/triage/engine.js",
+    "./inject": "./src/inject/playwright.js"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
