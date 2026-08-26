@@ -2,11 +2,11 @@
 // A mixed result is the classic nondeterministic (flaky) signature.
 import { spawn } from 'node:child_process';
 
-export async function rerunStats(command, runs = 3) {
+export async function rerunStats(command, runs = 3, { env = {} } = {}) {
   const exitCodes = [];
   for (let i = 0; i < runs; i += 1) {
     const code = await new Promise((resolve) => {
-      const child = spawn(command, { shell: true, stdio: 'ignore' });
+      const child = spawn(command, { shell: true, stdio: 'ignore', env: { ...process.env, ...env } });
       child.on('error', () => resolve(-1));
       child.on('close', (c) => resolve(c ?? -1));
     });

@@ -18,11 +18,14 @@ test('renderReport shows verdict, evidence and recommendation table', () => {
     rerun: { runs: 3, failures: 3, exitCodes: [1, 1, 1] },
     classification: { verdict: 'cosmetic', reasons: ['selector relies on build-generated class ".css-1a2b3c" which is gone from the element'] },
     recommendation: [{ selector: '#main-nav li:nth-child(1)', kind: 'positional', uniqueInCurrent: true, survived: 4, applied: 5 }],
+    temporal: { reproduced: true, delay: 500, tried: [{ delay: 250, failures: 0, runs: 2 }, { delay: 500, failures: 2, runs: 2 }] },
     notes: ['test failed on every rerun; deterministic failure'],
   });
   assert.ok(md.includes('**fragile**'));
   assert.ok(md.includes('`li.css-1a2b3c`'));
   assert.ok(md.includes('| `#main-nav li:nth-child(1)` | positional | yes | 4/5 |'));
+  assert.ok(md.includes('## Timing provocation'));
+  assert.ok(md.includes('- 500 ms: 2/2 runs failed'));
 });
 
 test('cli snapshot and triage round-trip on the fixture page', async () => {

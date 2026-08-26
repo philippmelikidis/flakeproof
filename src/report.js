@@ -25,6 +25,10 @@ export function renderReport(r) {
       }
     }
   }
+  if (r.temporal) {
+    lines.push('', '## Timing provocation');
+    for (const t of r.temporal.tried) lines.push(`- ${t.delay} ms: ${t.failures}/${t.runs} runs failed`);
+  }
   if (r.notes?.length) {
     lines.push('', '## Notes');
     for (const note of r.notes) lines.push(`- ${note}`);

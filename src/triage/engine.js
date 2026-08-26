@@ -9,6 +9,7 @@ import { classifyDelta } from './classify.js';
 import { candidatesFor } from './candidates.js';
 import { proveCandidates } from './prove.js';
 import { rerunStats } from './rerun.js';
+import { temporalProbe } from './temporal-probe.js';
 import { captureSnapshot } from '../snapshot.js';
 import { nodeAt } from './tree.js';
 
@@ -88,7 +89,15 @@ export async function triage(opts) {
     rerun = await rerunStats(opts.rerunCommand, opts.reruns ?? 3);
     if (rerun.failures === 0 || rerun.nondeterministic) {
       const why = rerun.failures === 0 ? 'test went green on every rerun' : 'test fails intermittently across reruns';
-      return { verdict: 'nondeterministic', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, why] };
+      notes.push(why);
+      let temporal = null;
+      if (opts.temporal) {
+        temporal = await temporalProbe(opts.rerunCommand, anchor.selector);
+        notes.push(temporal.reproduced
+          ? `fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`
+          : 'timing provocation on the anchor did not reproduce the failure');
+      }
+      return { verdict: 'nondeterministic', anchor, testId, rerun, temporal, classification: null, recommendation: null, notes };
     }
     notes.push('test failed on every rerun; deterministic failure');
   }
