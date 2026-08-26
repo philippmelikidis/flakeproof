@@ -10,17 +10,11 @@ import { candidatesFor } from './candidates.js';
 import { proveCandidates } from './prove.js';
 import { rerunStats } from './rerun.js';
 import { temporalProbe } from './temporal-probe.js';
+import { temporalTargetFor } from './temporal-target.js';
 import { captureSnapshot } from '../snapshot.js';
 import { nodeAt } from './tree.js';
 
 const VERDICT_BY_CLASSIFICATION = { cosmetic: 'fragile', semantic: 'real-change', unclear: 'unclear' };
-
-// The delay script targets the anchor with a CSS rule; Playwright-only
-// engines (text=, role=, :has-text) cannot be expressed there, so probing
-// them would silently test nothing.
-function isCssAnchor(selector) {
-  return !/^[a-z-]+=/i.test(selector) && !/:has-text\(|:text/.test(selector);
-}
 
 // The baseline was captured while the build was green, before the failing
 // selector was known. Resolve it now against the stored html via
@@ -101,10 +95,14 @@ export async function triage(opts) {
       notes.push(why);
       let temporal = null;
       if (opts.temporal) {
-        if (!isCssAnchor(anchor.selector)) {
-          notes.push('temporal probe skipped: the anchor is not a plain css selector, so the delay cannot target it');
+        const target = temporalTargetFor(anchor.selector);
+        if (!target) {
+          notes.push('temporal probe skipped: no sufficiently specific css target can be derived from the anchor');
         } else {
-          temporal = await temporalProbe(opts.rerunCommand, anchor.selector);
+          if (target !== anchor.selector) {
+            notes.push(`temporal delay targets the css base "${target}" derived from the anchor`);
+          }
+          temporal = await temporalProbe(opts.rerunCommand, target);
           if (temporal.reproduced) {
             notes.push(`fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`);
           } else if (temporal.control && temporal.control.failures > 0) {
