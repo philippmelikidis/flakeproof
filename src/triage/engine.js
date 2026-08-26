@@ -105,9 +105,13 @@ export async function triage(opts) {
           notes.push('temporal probe skipped: the anchor is not a plain css selector, so the delay cannot target it');
         } else {
           temporal = await temporalProbe(opts.rerunCommand, anchor.selector);
-          notes.push(temporal.reproduced
-            ? `fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`
-            : 'no reproduction; note this requires the flakeproof/inject wrapper in the suite and a css anchor');
+          if (temporal.reproduced) {
+            notes.push(`fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`);
+          } else if (temporal.control && temporal.control.failures > 0) {
+            notes.push('temporal probe aborted: the control run without any delay already failed, so the baseline is too unstable to attribute failures to timing');
+          } else {
+            notes.push('no reproduction; note this requires the flakeproof/inject wrapper in the suite and a css anchor');
+          }
         }
       }
       return { verdict: 'nondeterministic', anchor, testId, rerun, temporal, classification: null, recommendation: null, notes };

@@ -28,6 +28,14 @@ test('renderReport shows verdict, evidence and recommendation table', () => {
   assert.ok(md.includes('- 500 ms: 2/2 runs failed'));
 });
 
+test('renderReport does not show empty Timing provocation section', () => {
+  const md = renderReport({
+    verdict: 'nondeterministic',
+    temporal: { reproduced: false, delay: null, tried: [], control: { failures: 2, runs: 2 } },
+  });
+  assert.ok(!md.includes('## Timing provocation'), 'empty tried array should not render the section');
+});
+
 test('cli snapshot and triage round-trip on the fixture page', async () => {
   const server = await startFixtureServer();
   try {

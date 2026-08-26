@@ -183,3 +183,26 @@ test('temporal probe turns a green-on-rerun failure into a reproducible finding'
   assert.equal(result.temporal.delay, 500);
   assert.ok(result.notes.some((note) => note.includes('likely a missing wait')));
 });
+
+test('temporal control abort when baseline is too unstable', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+  const counterFile = join(dir, 'counter.txt');
+  const script = join(dir, 'alternating.cjs');
+  await writeFile(
+    script,
+    `const fs = require('fs');
+const f = process.env.FP_COUNTER_FILE;
+const n = fs.existsSync(f) ? Number(fs.readFileSync(f, 'utf8')) + 1 : 1;
+fs.writeFileSync(f, String(n));
+process.exit(n % 2 === 1 ? 1 : 0);`,
+  );
+  const result = await triage({
+    errorText: timeoutError('#cta'),
+    rerunCommand: `FP_COUNTER_FILE=${counterFile} node ${script}`,
+    reruns: 2,
+    temporal: true,
+  });
+  assert.equal(result.verdict, 'nondeterministic');
+  assert.ok(result.temporal.control && result.temporal.control.failures > 0);
+  assert.ok(result.notes.some((note) => note.includes('control run without any delay already failed')));
+});
