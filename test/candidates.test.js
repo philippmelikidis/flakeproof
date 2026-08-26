@@ -25,7 +25,7 @@ const tree = () =>
               n('li', { classes: ['css-9z8y7x', 'nav-item'] }, [n('a', { text: 'Solutions', attrs: { href: '/solutions/' } })]),
             ]),
           ]),
-          n('a', { id: 'cta', classes: ['btn'], text: 'Contact us', attrs: { href: '/contact/', 'data-testid': 'cta-button' } }),
+          n('a', { id: 'cta', classes: ['btn'], text: 'Contact us', role: 'link', attrs: { href: '/contact/', 'data-testid': 'cta-button' } }),
         ]),
       ]),
     ]),
@@ -66,4 +66,33 @@ test('candidatesFor falls back to a positional candidate for anonymous elements'
   const cands = candidatesFor(t, liPath);
   assert.deepEqual(cands.map((c) => c.selector), ['#main-nav li:nth-child(1)']);
   assert.equal(cands[0].kind, 'positional');
+});
+
+test('text and role candidates are generated for text-bearing elements', () => {
+  const t = tree();
+  const ctaPath = [0, 0, 1];
+  const selectors = candidatesFor(t, ctaPath).map((c) => c.selector);
+  assert.ok(selectors.includes('text="Contact us"'));
+  assert.ok(selectors.includes('role=link[name="Contact us"]'));
+});
+
+test('text candidate is dropped when the text is not unique in the tree', () => {
+  const t = withPaths(
+    n('html', {}, [
+      n('body', {}, [
+        n('a', { text: 'Read more', attrs: { href: '/a/' } }),
+        n('a', { text: 'Read more', attrs: { href: '/b/' } }),
+      ]),
+    ]),
+  );
+  const cands = candidatesFor(t, [0, 0]);
+  assert.ok(!cands.some((c) => c.kind === 'text'), 'duplicate text must not become a candidate');
+});
+
+test('text containing a double quote is not offered (fail closed)', () => {
+  const t = withPaths(
+    n('html', {}, [n('body', {}, [n('a', { text: 'say "hi"', attrs: { href: '/x/' } })])]),
+  );
+  const cands = candidatesFor(t, [0, 0]);
+  assert.ok(!cands.some((c) => c.kind === 'text' || c.kind === 'role'));
 });
