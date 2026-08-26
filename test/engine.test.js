@@ -170,7 +170,10 @@ test('temporal probe turns a green-on-rerun failure into a reproducible finding'
   const script = join(dir, 'timing.cjs');
   await writeFile(
     script,
-    'const ms = Number(process.env.FLAKEPROOF_TEMPORAL_MS || 0); process.exit(ms >= 500 ? 1 : 0);',
+    'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+      'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+      'if(ms>0&&ack)fs.writeFileSync(ack,"injected");' +
+      'process.exit(ms>=500?1:0);',
   );
   const result = await triage({
     errorText: timeoutError('#cta'),
@@ -181,7 +184,26 @@ test('temporal probe turns a green-on-rerun failure into a reproducible finding'
   assert.equal(result.verdict, 'nondeterministic');
   assert.equal(result.temporal.reproduced, true);
   assert.equal(result.temporal.delay, 500);
+  assert.equal(result.temporal.injected, true);
   assert.ok(result.notes.some((note) => note.includes('likely a missing wait')));
+});
+
+test('a missing inject wrapper is named instead of blaming timing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+  const script = join(dir, 'silent.cjs');
+  await writeFile(
+    script,
+    'const ms = Number(process.env.FLAKEPROOF_TEMPORAL_MS || 0); process.exit(ms >= 500 ? 1 : 0);',
+  );
+  const result = await triage({
+    errorText: timeoutError('#cta'),
+    rerunCommand: `node ${script}`,
+    reruns: 2,
+    temporal: true,
+  });
+  assert.equal(result.verdict, 'nondeterministic');
+  assert.equal(result.temporal.injected, false);
+  assert.ok(result.notes.some((note) => note.includes('never acknowledged')), JSON.stringify(result.notes));
 });
 
 test('temporal control abort when baseline is too unstable', async () => {

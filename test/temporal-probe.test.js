@@ -5,26 +5,44 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { temporalProbe } from '../src/triage/temporal-probe.js';
 
-// Fails exactly when the injected delay is at least 500 ms, mimicking a test
-// with a 400 ms implicit wait budget.
-async function timingSensitiveScript() {
+// Mimics a suite with the inject wrapper installed: acknowledges the
+// injection, then fails when the delay is at least 500 ms.
+async function ackedTimingScript() {
   const dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
   const script = join(dir, 'timing.cjs');
   await writeFile(
     script,
-    'const ms = Number(process.env.FLAKEPROOF_TEMPORAL_MS || 0); process.exit(ms >= 500 ? 1 : 0);',
+    'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+      'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+      'if(ms>0&&ack)fs.writeFileSync(ack,"injected");' +
+      'process.exit(ms>=500?1:0);',
   );
   return script;
 }
 
 test('finds the smallest delay that reproduces the failure', async () => {
-  const script = await timingSensitiveScript();
+  const script = await ackedTimingScript();
   const result = await temporalProbe(`node ${script}`, '#cta', { delays: [250, 500, 1000], runsPerDelay: 2 });
   assert.equal(result.reproduced, true);
   assert.equal(result.delay, 500);
   assert.deepEqual(result.tried.map((t) => t.delay), [250, 500], 'must stop at the first reproducing delay');
   assert.deepEqual(result.tried.map((t) => t.failures), [0, 2]);
   assert.equal(result.control.failures, 0);
+  assert.equal(result.injected, true);
+});
+
+test('a fully failing delay without an acknowledgment is not a reproduction claim', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+  const script = join(dir, 'silent.cjs');
+  await writeFile(
+    script,
+    'const ms = Number(process.env.FLAKEPROOF_TEMPORAL_MS || 0); process.exit(ms >= 500 ? 1 : 0);',
+  );
+  const result = await temporalProbe(`node ${script}`, '#cta', { delays: [250, 500], runsPerDelay: 2 });
+  assert.equal(result.reproduced, false, 'no ack means no experiment, means no claim');
+  assert.equal(result.injected, false);
+  assert.equal(result.delay, null);
+  assert.equal(result.tried.at(-1).failures, 2, 'the failing delay round must still be recorded');
 });
 
 test('reports honestly when no delay reproduces', async () => {

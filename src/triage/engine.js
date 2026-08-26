@@ -109,8 +109,10 @@ export async function triage(opts) {
             notes.push(`fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`);
           } else if (temporal.control && temporal.control.failures > 0) {
             notes.push('temporal probe aborted: the control run without any delay already failed, so the baseline is too unstable to attribute failures to timing');
+          } else if (temporal.injected === false) {
+            notes.push('the inject wrapper never acknowledged the delay; install withTemporal from flakeproof/inject in the suite before trusting any timing verdict');
           } else {
-            notes.push('no reproduction; note this requires the flakeproof/inject wrapper in the suite and a css anchor');
+            notes.push('no reproduction: the delay was injected but the failure did not come back; timing on this anchor is unlikely to be the cause');
           }
         }
       }

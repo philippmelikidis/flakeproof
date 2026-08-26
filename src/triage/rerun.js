@@ -13,6 +13,7 @@ export async function rerunStats(command, runs = 3, { env = {} } = {}) {
       const childEnv = { ...process.env, ...env };
       if (!('FLAKEPROOF_TEMPORAL_SELECTOR' in env)) delete childEnv.FLAKEPROOF_TEMPORAL_SELECTOR;
       if (!('FLAKEPROOF_TEMPORAL_MS' in env)) delete childEnv.FLAKEPROOF_TEMPORAL_MS;
+      if (!('FLAKEPROOF_TEMPORAL_ACK' in env)) delete childEnv.FLAKEPROOF_TEMPORAL_ACK;
       const child = spawn(command, { shell: true, stdio: 'ignore', env: childEnv });
       child.on('error', () => resolve(-1));
       child.on('close', (c) => resolve(c ?? -1));
