@@ -228,3 +228,10 @@ process.exit(n % 2 === 1 ? 1 : 0);`,
   assert.ok(result.temporal.control && result.temporal.control.failures > 0);
   assert.ok(result.notes.some((note) => note.includes('control run without any delay already failed')));
 });
+
+test('every triage result carries a temporal field', async () => {
+  const result = await triage({ errorText: 'AssertionError: Should Be Equal failed: A != B' });
+  assert.equal(result.verdict, 'no-anchor');
+  assert.ok('temporal' in result, 'json consumers need a stable shape');
+  assert.equal(result.temporal, null);
+});

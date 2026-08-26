@@ -66,7 +66,7 @@ export async function triage(opts) {
   if (!errorText && opts.robotOutputXml) {
     const failures = await failedTestsFromOutputXml(opts.robotOutputXml);
     if (failures.length === 0) {
-      return { verdict: 'no-anchor', anchor: null, testId, rerun: null, classification: null, recommendation: null, notes: ['no failed test in output.xml'] };
+      return { verdict: 'no-anchor', anchor: null, testId, rerun: null, classification: null, recommendation: null, temporal: null, notes: ['no failed test in output.xml'] };
     }
     errorText = failures[0].message;
     testId = failures[0].testId;
@@ -76,7 +76,7 @@ export async function triage(opts) {
   const anchor = extractAnchor(errorText ?? '');
   if (!anchor.selector) {
     return {
-      verdict: 'no-anchor', anchor, testId, rerun: null, classification: null, recommendation: null,
+      verdict: 'no-anchor', anchor, testId, rerun: null, classification: null, recommendation: null, temporal: null,
       notes: [...notes, 'no locator found in the error; cannot triage without an anchor'],
     };
   }
@@ -121,21 +121,21 @@ export async function triage(opts) {
 
   const baseline = JSON.parse(await readFile(opts.baselinePath, 'utf8'));
   if (!baseline.html || !baseline.tree) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, 'baseline snapshot is missing tree or html'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'baseline snapshot is missing tree or html'] };
   }
 
   const resolved = await resolveAnchorPath(baseline, anchor.selector);
   if (resolved.error) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, 'anchor selector could not be evaluated against the baseline'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'anchor selector could not be evaluated against the baseline'] };
   }
   if (!resolved.path) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, 'anchor selector does not resolve in the baseline snapshot'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'anchor selector does not resolve in the baseline snapshot'] };
   }
   if (resolved.count > 1) notes.push(`anchor selector matches ${resolved.count} baseline elements, using the first`);
 
   const treeNode = nodeAt(baseline.tree, resolved.path);
   if (!treeNode || treeNode.tag !== resolved.tag || (treeNode.id ?? null) !== (resolved.id ?? null)) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, 'baseline html and serialized tree disagree at the anchor; cannot triage reliably'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'baseline html and serialized tree disagree at the anchor; cannot triage reliably'] };
   }
 
   const current = opts.currentPath
@@ -163,5 +163,5 @@ export async function triage(opts) {
     }
   }
 
-  return { verdict, anchor, testId, rerun, classification, recommendation, notes };
+  return { verdict, anchor, testId, rerun, classification, recommendation, temporal: null, notes };
 }

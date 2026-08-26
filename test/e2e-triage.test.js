@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { startFixtureServer } from './helpers/serve.js';
 import { captureSnapshot } from '../src/snapshot.js';
 import { triage } from '../src/triage/engine.js';
+import { renderReport } from '../src/report.js';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const timeoutError = (selector) =>
@@ -72,5 +73,29 @@ test('removed weak-identity element yields an honest unclear', async () => {
     assert.equal(result.verdict, 'unclear');
   } finally {
     await v3.close();
+  }
+});
+
+test('fragile with a current file yields unproven candidates, honestly labeled', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fp-e2e-'));
+  const baselinePath = await baselineOfV1(dir);
+  const v2 = await startFixtureServer({ root: join(fixtures, 'page-v2') });
+  try {
+    const currentPath = join(dir, 'current.json');
+    await writeFile(currentPath, JSON.stringify(await captureSnapshot(v2.url)));
+    const result = await triage({
+      errorText: timeoutError('li.css-1a2b3c'),
+      baselinePath,
+      currentPath,
+    });
+    assert.equal(result.verdict, 'fragile');
+    assert.ok(result.recommendation?.length, 'unproven candidates must still be offered');
+    assert.equal(result.recommendation[0].survived, null);
+    assert.ok(result.notes.some((n) => n.includes('approximated, not verified')));
+    const md = renderReport(result);
+    assert.ok(md.includes('| unknown |'), 'unproven rows must render with unknown uniqueness');
+    assert.ok(!md.includes('No candidate survived proving'));
+  } finally {
+    await v2.close();
   }
 });

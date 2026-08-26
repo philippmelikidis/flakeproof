@@ -25,7 +25,8 @@ test('renderReport shows verdict, evidence and recommendation table', () => {
   assert.ok(md.includes('`li.css-1a2b3c`'));
   assert.ok(md.includes('| `#main-nav li:nth-child(1)` | positional | yes | 4/5 |'));
   assert.ok(md.includes('## Timing provocation'));
-  assert.ok(md.includes('- 500 ms: 2/2 runs failed'));
+  assert.ok(md.includes('- 500 ms: 2/2 runs failed (reproduces)'));
+  assert.ok(!md.includes('- 250 ms: 0/2 runs failed (reproduces)'));
 });
 
 test('renderReport does not show empty Timing provocation section', () => {
