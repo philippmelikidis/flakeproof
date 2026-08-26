@@ -33,6 +33,22 @@ function matchesCompound(node, c) {
   return true;
 }
 
+function countByText(tree, text) {
+  let count = 0;
+  walk(tree, (node) => {
+    if (node.text === text) count += 1;
+  });
+  return count;
+}
+
+function countByRoleName(tree, role, name) {
+  let count = 0;
+  walk(tree, (node) => {
+    if (node.role === role && (node.name || node.text) === name) count += 1;
+  });
+  return count;
+}
+
 export function queryTree(tree, selector) {
   if (!selector || !selector.trim()) return null;
   const parts = selector.trim().split(/\s+/).map(parseCompound);
@@ -66,6 +82,23 @@ export function candidatesFor(tree, path) {
   if (node.attrs['aria-label']) {
     raw.push({ selector: `${node.tag}[aria-label="${node.attrs['aria-label']}"]`, kind: 'aria' });
   }
+  // Playwright-syntax candidates. queryTree's css grammar cannot verify
+  // these; uniqueness is approximated tree-side (exact own-text match,
+  // role + accessible-name match) and finally verified by the prover on the
+  // live page. Fail closed on empty, long or quote-bearing text.
+  const ownText = node.text;
+  if (ownText && ownText.length <= 80 && !ownText.includes('"')) {
+    raw.push({ selector: `text="${ownText}"`, kind: 'text' });
+  }
+  // Playwright computes the accessible name from the full subtree; when the
+  // node has element children but no explicit name, the tree-side
+  // approximation (own text) cannot model that computation, so skip the
+  // role candidate rather than guess.
+  const roleName = node.name || node.text;
+  const nameApproximable = node.name || node.children.length === 0;
+  if (node.role && roleName && nameApproximable && roleName.length <= 80 && !roleName.includes('"')) {
+    raw.push({ selector: `role=${node.role}[name="${roleName}"]`, kind: 'role' });
+  }
   const stable = node.classes.filter((c) => !HASHED_CLASS.test(c));
   for (const cls of stable) raw.push({ selector: `${node.tag}.${cls}`, kind: 'class' });
 
@@ -83,6 +116,8 @@ export function candidatesFor(tree, path) {
   return raw.filter((cand) => {
     if (seen.has(cand.selector)) return false;
     seen.add(cand.selector);
+    if (cand.kind === 'text') return countByText(tree, node.text) === 1;
+    if (cand.kind === 'role') return countByRoleName(tree, node.role, node.name || node.text) === 1;
     const hits = queryTree(tree, cand.selector);
     return hits !== null && hits.length === 1 && hits[0] === node;
   });

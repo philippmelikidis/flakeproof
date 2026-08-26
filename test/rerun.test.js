@@ -24,3 +24,16 @@ test('mixed outcomes are nondeterministic', async () => {
   assert.deepEqual(stats.exitCodes, [1, 0]);
   assert.equal(stats.nondeterministic, true);
 });
+
+test('stale FLAKEPROOF_TEMPORAL_MS from the parent environment is not inherited', async () => {
+  process.env.FLAKEPROOF_TEMPORAL_MS = '999';
+  try {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-rerun-'));
+    const script = join(dir, 'sensitive.cjs');
+    await writeFile(script, 'process.exit(process.env.FLAKEPROOF_TEMPORAL_MS ? 1 : 0);');
+    const stats = await rerunStats(`node ${script}`, 1);
+    assert.equal(stats.failures, 0);
+  } finally {
+    delete process.env.FLAKEPROOF_TEMPORAL_MS;
+  }
+});

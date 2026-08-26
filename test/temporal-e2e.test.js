@@ -1,0 +1,23 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { startFixtureServer } from './helpers/serve.js';
+import { rerunStats } from '../src/triage/rerun.js';
+import { temporalProbe } from '../src/triage/temporal-probe.js';
+
+const COMMAND = 'npx playwright test --config test/fixtures/pw-temporal/playwright.config.js';
+
+test('temporal probe reproduces a timing failure in a real playwright run', async () => {
+  const server = await startFixtureServer();
+  process.env.FIXTURE_URL = server.url;
+  try {
+    const clean = await rerunStats(COMMAND, 1);
+    assert.equal(clean.failures, 0, 'spec must pass without temporal delay');
+
+    const result = await temporalProbe(COMMAND, '#cta', { delays: [1000], runsPerDelay: 1 });
+    assert.equal(result.reproduced, true, 'a 1000 ms delay against a 400 ms budget must fail deterministically');
+    assert.equal(result.delay, 1000);
+  } finally {
+    delete process.env.FIXTURE_URL;
+    await server.close();
+  }
+});

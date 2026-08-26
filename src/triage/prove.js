@@ -16,17 +16,23 @@ function markTarget(path) {
   return true;
 }
 
-// Runs inside the page. Self-contained.
-function checkCandidate(selector) {
-  let els;
-  try {
-    els = [...document.querySelectorAll(selector)];
-  } catch {
-    return { hit: false };
-  }
-  return { hit: els.length === 1 && els[0].getAttribute('data-fp-target') === '1' };
-}
 /* eslint-enable no-undef */
+
+// Checks one candidate against the live page: it must resolve to exactly one
+// element, and that element must be the marked target. page.locator
+// understands css and Playwright engines (text=, role=) alike; an
+// unparsable selector counts as a miss, never as an error.
+async function candidateHits(page, selector) {
+  try {
+    const locator = page.locator(selector);
+    if ((await locator.count()) !== 1) return false;
+
+    return await locator.first().evaluate((el) => el.getAttribute('data-fp-target') === '1');
+
+  } catch {
+    return false;
+  }
+}
 
 export async function proveCandidates(url, anchorPath, candidates, { mutations = cosmeticMutations } = {}) {
   const browser = await chromium.launch();
@@ -48,8 +54,7 @@ export async function proveCandidates(url, anchorPath, candidates, { mutations =
     // Uniqueness on the unmutated current page.
     await withPage(async (page) => {
       for (const r of results) {
-        const { hit } = await page.evaluate(checkCandidate, r.selector);
-        r.uniqueInCurrent = hit;
+        r.uniqueInCurrent = await candidateHits(page, r.selector);
       }
     });
 
@@ -58,9 +63,8 @@ export async function proveCandidates(url, anchorPath, candidates, { mutations =
         const applied = await page.evaluate(mutation.apply, '[data-fp-target]');
         if (!applied) return; // not applicable to this element; excluded from `applied`
         for (const r of results) {
-          const { hit } = await page.evaluate(checkCandidate, r.selector);
           r.applied += 1;
-          if (hit) r.survived += 1;
+          if (await candidateHits(page, r.selector)) r.survived += 1;
         }
       });
     }
