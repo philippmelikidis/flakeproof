@@ -130,3 +130,18 @@ test('robot-xml failure with an anchor that does not resolve in the baseline is 
     await server.close();
   }
 });
+
+test('a strict mode violation is surfaced as a fragility note', async () => {
+  const server = await startFixtureServer();
+  try {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const baselinePath = join(dir, 'baseline.json');
+    await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
+    const errorText = await readFile(new URL('./fixtures/errors/pw-strict-violation.txt', import.meta.url), 'utf8');
+    const result = await triage({ errorText, baselinePath, currentPath: baselinePath });
+    assert.equal(result.anchor.kind, 'ambiguous');
+    assert.ok(result.notes.some((note) => note.includes('strict mode violation')));
+  } finally {
+    await server.close();
+  }
+});

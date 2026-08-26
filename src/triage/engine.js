@@ -79,6 +79,10 @@ export async function triage(opts) {
     };
   }
 
+  if (anchor.kind === 'ambiguous') {
+    notes.push('the failing locator matched multiple elements (strict mode violation); ambiguity itself is a fragility signal');
+  }
+
   let rerun = null;
   if (opts.rerunCommand) {
     rerun = await rerunStats(opts.rerunCommand, opts.reruns ?? 3);
