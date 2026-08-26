@@ -19,7 +19,7 @@ flakeproof mutates the page under test on purpose, in controlled ways, and watch
 |---|---|---|
 | Semantic | button text changed, link target changed, element removed | go red |
 | Cosmetic | class renamed, wrapper div added, element moved | stay green |
-| Temporal (building block, not wired yet) | element appears 800 ms later | stay green |
+| Temporal | element appears 800 ms later | stay green |
 
 Green under semantic changes means blind. Red under cosmetic or timing changes means fragile. Think of a smoke detector tester that produces both smoke and toast: a good detector beeps at one and ignores the other.
 
@@ -42,7 +42,7 @@ flakeproof extracts the anchor (the locator the test was hanging on) from the re
 |---|---|
 | `real-change` | meaning changed at the anchor: probable regression, go look at the app |
 | `fragile` | the selector broke on a meaning-free coupling: fix the test, suggestions included |
-| `nondeterministic` | reruns disagree: timing or state, not this commit |
+| `nondeterministic` | reruns disagree; with --temporal the missing wait is pinpointed by provoked delays |
 | `unclear` | evidence is mixed or missing: flakeproof does not guess |
 | `no-anchor` | the error names no locator, nothing to triage against |
 
@@ -72,15 +72,28 @@ Honesty is a design rule here: `unclear` is a first-class verdict, abstaining be
     flakeproof triage --baseline <file.json>
                       (--error-file <file> | --robot-xml <output.xml>)
                       (--current-url <url> | --current <file.json>)
-                      [--rerun-cmd <command>] [--reruns <n>] [--json] [--out <file.md>]
+                      [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md>]
 
 Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or runtime errors.
+
+### Catching missing waits
+
+Flaky tests usually mean a missing wait, but nobody can point at it. With the temporal lane flakeproof finds it: pass `--temporal` together with `--rerun-cmd`, and when reruns disagree, flakeproof reruns the test with the anchor element deliberately delayed by increasing amounts until the failure reproduces on every run. The report then says: fails on every run when `#submit` appears 500 ms late, likely a missing wait.
+
+This needs a one-time, permanently inert setup in your Playwright suite:
+
+    // fixtures.js
+    import { test as base } from '@playwright/test';
+    import { withTemporal } from 'flakeproof/inject';
+    export const test = withTemporal(base);
+
+Robot Framework suites cannot be injected this way yet; the rerun statistics still work there, only the provocation step is Playwright-only for now.
 
 ## Status
 
 Phase 1 (red triage MVP) is complete. Phase 0 established the measurement foundation: across 37 mutated fixture and live-site cases the classifier produced 0 misclassifications, with every abstention documented. Full numbers in `spikes/phase0-report.md`, reproducible via `npm run spike`.
 
-On the roadmap: proving candidates inside the user's own test run (framework injection), temporal provocation as a triage lane, text- and role-based selector candidates, and grading new tests before they enter the suite.
+On the roadmap: temporal injection for Robot Framework suites, proving candidates inside the user's own test run, and grading new tests before they enter the suite.
 
 ## Development
 
@@ -100,6 +113,7 @@ bin/flakeproof.js   CLI entry point (snapshot, triage)
 src/probe/          code injected into the page: DOM serializer, mutation catalogs, temporal delay
 src/triage/         anchor extraction, element matching, classification, candidates, proving, engine
 src/adapters/       one small adapter per test framework (Robot Framework today)
+src/inject/         opt-in helpers for user test suites (Playwright temporal injection)
 src/snapshot.js     baseline capture (serialized tree plus raw html)
 src/report.js       markdown report renderer
 test/               node:test suites, fixture page and build variants, captured real error fixtures
