@@ -24,6 +24,7 @@ test('finds the smallest delay that reproduces the failure', async () => {
   assert.equal(result.delay, 500);
   assert.deepEqual(result.tried.map((t) => t.delay), [250, 500], 'must stop at the first reproducing delay');
   assert.deepEqual(result.tried.map((t) => t.failures), [0, 2]);
+  assert.equal(result.control.failures, 0);
 });
 
 test('reports honestly when no delay reproduces', async () => {
@@ -34,4 +35,15 @@ test('reports honestly when no delay reproduces', async () => {
   assert.equal(result.reproduced, false);
   assert.equal(result.delay, null);
   assert.equal(result.tried.length, 2);
+  assert.equal(result.control.failures, 0);
+});
+
+test('an unstable baseline is never attributed to timing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+  const script = join(dir, 'always-fails.cjs');
+  await writeFile(script, 'process.exit(1);');
+  const result = await temporalProbe(`node ${script}`, '#cta', { delays: [250, 500], runsPerDelay: 2 });
+  assert.equal(result.reproduced, false);
+  assert.equal(result.tried.length, 0);
+  assert.equal(result.control.failures, 2);
 });

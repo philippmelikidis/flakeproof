@@ -15,6 +15,13 @@ import { nodeAt } from './tree.js';
 
 const VERDICT_BY_CLASSIFICATION = { cosmetic: 'fragile', semantic: 'real-change', unclear: 'unclear' };
 
+// The delay script targets the anchor with a CSS rule; Playwright-only
+// engines (text=, role=, :has-text) cannot be expressed there, so probing
+// them would silently test nothing.
+function isCssAnchor(selector) {
+  return !/^[a-z-]+=/i.test(selector) && !/:has-text\(|:text/.test(selector);
+}
+
 // The baseline was captured while the build was green, before the failing
 // selector was known. Resolve it now against the stored html via
 // page.locator, which understands Playwright selector syntax.
@@ -84,6 +91,8 @@ export async function triage(opts) {
     notes.push('the failing locator matched multiple elements (strict mode violation); ambiguity itself is a fragility signal');
   }
 
+  if (opts.temporal && !opts.rerunCommand) notes.push('temporal probing requires a rerun command; probe skipped');
+
   let rerun = null;
   if (opts.rerunCommand) {
     rerun = await rerunStats(opts.rerunCommand, opts.reruns ?? 3);
@@ -92,10 +101,14 @@ export async function triage(opts) {
       notes.push(why);
       let temporal = null;
       if (opts.temporal) {
-        temporal = await temporalProbe(opts.rerunCommand, anchor.selector);
-        notes.push(temporal.reproduced
-          ? `fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`
-          : 'timing provocation on the anchor did not reproduce the failure');
+        if (!isCssAnchor(anchor.selector)) {
+          notes.push('temporal probe skipped: the anchor is not a plain css selector, so the delay cannot target it');
+        } else {
+          temporal = await temporalProbe(opts.rerunCommand, anchor.selector);
+          notes.push(temporal.reproduced
+            ? `fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`
+            : 'no reproduction; note this requires the flakeproof/inject wrapper in the suite and a css anchor');
+        }
       }
       return { verdict: 'nondeterministic', anchor, testId, rerun, temporal, classification: null, recommendation: null, notes };
     }
@@ -142,7 +155,7 @@ export async function triage(opts) {
       }
     } else {
       recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null }));
-      notes.push('candidates are uniqueness-checked against the baseline only; pass a current URL to prove them against mutations');
+      notes.push('candidates are uniqueness-checked against the baseline only; text and role uniqueness is approximated, not verified; pass a current URL to prove them against mutations');
     }
   }
 

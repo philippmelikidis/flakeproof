@@ -78,7 +78,7 @@ Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or
 
 ### Catching missing waits
 
-Flaky tests usually mean a missing wait, but nobody can point at it. With the temporal lane flakeproof finds it: pass `--temporal` together with `--rerun-cmd`, and when reruns disagree, flakeproof reruns the test with the anchor element deliberately delayed by increasing amounts until the failure reproduces on every run. The report then says: fails on every run when `#submit` appears 500 ms late, likely a missing wait.
+Flaky tests usually mean a missing wait, but nobody can point at it. With the temporal lane flakeproof finds it: pass `--temporal` together with `--rerun-cmd`, and when reruns disagree, flakeproof reruns the test with the anchor element deliberately delayed by increasing amounts until the failure reproduces on every run. The report then says: `fails on every run when "#submit" appears 500 ms late; likely a missing wait`.
 
 This needs a one-time, permanently inert setup in your Playwright suite:
 

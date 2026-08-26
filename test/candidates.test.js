@@ -91,8 +91,23 @@ test('text candidate is dropped when the text is not unique in the tree', () => 
 
 test('text containing a double quote is not offered (fail closed)', () => {
   const t = withPaths(
-    n('html', {}, [n('body', {}, [n('a', { text: 'say "hi"', attrs: { href: '/x/' } })])]),
+    n('html', {}, [n('body', {}, [n('a', { text: 'say "hi"', attrs: { href: '/x/' }, role: 'link' })])]),
   );
   const cands = candidatesFor(t, [0, 0]);
   assert.ok(!cands.some((c) => c.kind === 'text' || c.kind === 'role'));
+});
+
+test('role candidate is withheld for a node with element children and no explicit name', () => {
+  const t = withPaths(
+    n('html', {}, [
+      n('body', {}, [
+        n('a', { text: 'Contact us', role: 'link', attrs: { href: '/contact/' } }, [
+          n('span', { text: 'arrow-icon' }),
+        ]),
+      ]),
+    ]),
+  );
+  const cands = candidatesFor(t, [0, 0]);
+  assert.ok(!cands.some((c) => c.kind === 'role'), 'accessible name cannot be approximated from own text when element children exist');
+  assert.ok(cands.some((c) => c.kind === 'text'), 'own-text candidate is unaffected and stays since the text is unique');
 });

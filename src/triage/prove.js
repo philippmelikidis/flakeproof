@@ -26,9 +26,9 @@ async function candidateHits(page, selector) {
   try {
     const locator = page.locator(selector);
     if ((await locator.count()) !== 1) return false;
-     
+
     return await locator.first().evaluate((el) => el.getAttribute('data-fp-target') === '1');
-     
+
   } catch {
     return false;
   }

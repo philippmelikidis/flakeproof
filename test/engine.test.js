@@ -146,6 +146,25 @@ test('a strict mode violation is surfaced as a fragility note', async () => {
   }
 });
 
+test('temporal requested without a rerun command is noted, not silently skipped', async () => {
+  const server = await startFixtureServer();
+  try {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const baselinePath = join(dir, 'baseline.json');
+    await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      baselinePath,
+      currentPath: baselinePath,
+      temporal: true,
+    });
+    assert.ok(result.verdict, 'a verdict must still be produced');
+    assert.ok(result.notes.some((note) => note.includes('temporal probing requires a rerun command')));
+  } finally {
+    await server.close();
+  }
+});
+
 test('temporal probe turns a green-on-rerun failure into a reproducible finding', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
   const script = join(dir, 'timing.cjs');
