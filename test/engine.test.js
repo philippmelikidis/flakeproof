@@ -271,6 +271,33 @@ test('every triage result carries a temporal field', async () => {
   assert.equal(result.temporal, null);
 });
 
+test('a deterministic red rerun skips the temporal probe with a named note, not silence', async () => {
+  let server = null;
+  let dir = null;
+  try {
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const baselinePath = join(dir, 'baseline.json');
+    await writeFile(baselinePath, JSON.stringify(await captureSnapshot(server.url)));
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      baselinePath,
+      currentPath: baselinePath,
+      rerunCommand: 'node -e "process.exit(1)"',
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.temporal, null, 'no intermittency means no probe was run');
+    assert.ok(
+      result.notes.some((n) => n.includes('no intermittency')),
+      `expected a note explaining the skip, got: ${JSON.stringify(result.notes)}`,
+    );
+  } finally {
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('a broken rerun command is named instead of trusted', async () => {
   let server = null;
   let dir = null;

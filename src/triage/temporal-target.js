@@ -9,6 +9,7 @@ export function temporalTargetFor(selector) {
   let base = selector.split('>>')[0].trim();
   if (/^[a-z-]+=/i.test(base)) return null; // engine-prefixed: text=, role=, xpath=, id=
   if (base.startsWith('//') || base.startsWith('..')) return null; // bare xpath
+  if (base.includes(',')) return null; // a selector list would hide every branch, not the anchor
   base = base.replace(/:(?:visible|hidden|enabled|disabled)\b/g, '');
   base = base.replace(/:(?:has-text|text-is|text|near|right-of|left-of|above|below)\((?:[^()"']|"[^"]*"|'[^']*')*\)/g, '');
   base = base.trim();

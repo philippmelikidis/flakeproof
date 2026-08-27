@@ -110,7 +110,7 @@ export async function triage(opts) {
           } else if (temporal.injected === false) {
             notes.push('the inject wrapper never acknowledged the delay; install withTemporal from flakeproof/inject in the suite before trusting any timing verdict');
           } else {
-            notes.push('no reproduction: the delay was injected but the failure did not come back; timing on this anchor is unlikely to be the cause');
+            notes.push('no reproduction: the delay style was installed on every round, but whether it affected the anchor is unverified; timing remains unlikely but not excluded');
           }
         }
       }
@@ -120,6 +120,9 @@ export async function triage(opts) {
       notes.push('every rerun exited with a spawn error or command-not-found; the rerun command itself looks broken and the rerun statistics are not meaningful');
     } else {
       notes.push('test failed on every rerun; deterministic failure');
+    }
+    if (opts.temporal) {
+      notes.push('temporal probe skipped: the test fails on every rerun, so there is no intermittency for a delay to explain');
     }
   }
 

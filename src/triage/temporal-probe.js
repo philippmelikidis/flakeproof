@@ -14,7 +14,10 @@
 // writing to FLAKEPROOF_TEMPORAL_ACK. A delay round that fails on every run
 // without that acknowledgment proves nothing about timing, since the
 // experiment never happened in-process; it just means the wrapper is not
-// installed.
+// installed. The receipt is per delay round: the ack file is reset before
+// every round so a stale acknowledgment from an earlier delay can never
+// validate a later round's reproduction claim. A fully failing round must
+// present its own acknowledgment.
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -34,6 +37,7 @@ export async function temporalProbe(command, selector, { delays = [250, 500, 100
   try {
     const tried = [];
     for (const delay of delays) {
+      await rm(ackPath, { force: true });
       const stats = await rerunStats(command, runsPerDelay, {
         env: {
           FLAKEPROOF_TEMPORAL_SELECTOR: selector,

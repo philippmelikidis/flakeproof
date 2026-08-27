@@ -24,3 +24,8 @@ test('anchors without a specific css base are refused', () => {
   assert.equal(temporalTargetFor('//div[@id="x"]'), null, 'bare xpath');
   assert.equal(temporalTargetFor('a:hover'), null, 'unknown pseudo syntax');
 });
+
+test('a comma selector list is refused, not narrowed to one branch', () => {
+  assert.equal(temporalTargetFor('#a, div'), null, 'narrowest branch would hide the broader list');
+  assert.equal(temporalTargetFor('.x, body'), null, 'style would hide the whole page via the body branch');
+});

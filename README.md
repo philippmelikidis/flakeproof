@@ -46,7 +46,7 @@ flakeproof extracts the anchor (the locator the test was hanging on) from the re
 | `unclear` | evidence is mixed or missing: flakeproof does not guess |
 | `no-anchor` | the error names no locator, nothing to triage against |
 
-For fragile tests the report includes selector recommendations that are proven, not guessed: every candidate is run against the cosmetic mutation catalog in a real browser, and only survivors are ranked.
+For fragile tests the report includes selector recommendations that are proven, not guessed: every candidate is run against the proving catalog in a real browser (the cosmetic mutations plus a copy tweak, so text based candidates cannot win by construction), and only survivors are ranked.
 
 ```
 # flakeproof triage

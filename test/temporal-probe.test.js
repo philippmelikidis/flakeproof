@@ -71,6 +71,30 @@ test('reports honestly when no delay reproduces', async () => {
   }
 });
 
+test('a stale ack from an earlier round never validates a later round', async () => {
+  // Acks only when the delay is exactly 250ms, but fails at 500ms and above.
+  // If the ack file were not reset per round, the round-1 ack would still be
+  // sitting there when round 2 (500ms, no ack) fully fails, and the probe
+  // would wrongly call that a reproduction.
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+    const script = join(dir, 'partial-ack.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms===250&&ack)fs.writeFileSync(ack,"injected");' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await temporalProbe(`node ${script}`, '#cta', { delays: [250, 500], runsPerDelay: 2 });
+    assert.equal(result.reproduced, false, 'the stale 250ms receipt must not count for the 500ms round');
+    assert.equal(result.injected, false);
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('an unstable baseline is never attributed to timing', async () => {
   let dir = null;
   try {
