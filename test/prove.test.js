@@ -48,7 +48,7 @@ test('positional candidate survives renames but not reordering', async () => {
   }
 });
 
-test('text candidate survives every cosmetic mutation on the nav link', async () => {
+test('text candidate survives cosmetic mutations but not the copy tweak', async () => {
   const server = await startFixtureServer();
   try {
     const snap = await anchorPathFor(server.url, 'li.css-1a2b3c > a');
@@ -61,8 +61,24 @@ test('text candidate survives every cosmetic mutation on the nav link', async ()
     const top = proven[0];
     assert.ok(top.kind === 'text' || top.kind === 'role', `expected a text/role candidate on top, got ${top.selector}`);
     assert.equal(top.uniqueInCurrent, true);
-    assert.equal(top.survived, top.applied);
-    assert.ok(top.applied >= 3, `expected at least 3 applicable mutations, got ${top.applied}`);
+    assert.equal(top.survived, top.applied - 1, 'the copy tweak must defeat the text candidate; that is its honest weakness');
+    assert.ok(top.applied >= 4, `expected at least 4 applicable mutations, got ${top.applied}`);
+  } finally {
+    await server.close();
+  }
+});
+
+test('id candidate outranks text after the copy tweak', async () => {
+  const server = await startFixtureServer();
+  try {
+    const snap = await anchorPathFor(server.url, '#cta');
+    const candidates = candidatesFor(snap.tree, snap.anchorPath);
+    const proven = await proveCandidates(server.url, snap.anchorPath, candidates);
+    assert.equal(proven[0].selector, '#cta');
+    assert.equal(proven[0].survived, proven[0].applied, 'the id must survive the copy tweak');
+    const text = proven.find((c) => c.kind === 'text');
+    assert.ok(text, 'cta must still get a text candidate');
+    assert.equal(text.survived, text.applied - 1);
   } finally {
     await server.close();
   }

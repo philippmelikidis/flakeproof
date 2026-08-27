@@ -10,17 +10,11 @@ import { candidatesFor } from './candidates.js';
 import { proveCandidates } from './prove.js';
 import { rerunStats } from './rerun.js';
 import { temporalProbe } from './temporal-probe.js';
+import { temporalTargetFor } from './temporal-target.js';
 import { captureSnapshot } from '../snapshot.js';
 import { nodeAt } from './tree.js';
 
 const VERDICT_BY_CLASSIFICATION = { cosmetic: 'fragile', semantic: 'real-change', unclear: 'unclear' };
-
-// The delay script targets the anchor with a CSS rule; Playwright-only
-// engines (text=, role=, :has-text) cannot be expressed there, so probing
-// them would silently test nothing.
-function isCssAnchor(selector) {
-  return !/^[a-z-]+=/i.test(selector) && !/:has-text\(|:text/.test(selector);
-}
 
 // The baseline was captured while the build was green, before the failing
 // selector was known. Resolve it now against the stored html via
@@ -72,7 +66,7 @@ export async function triage(opts) {
   if (!errorText && opts.robotOutputXml) {
     const failures = await failedTestsFromOutputXml(opts.robotOutputXml);
     if (failures.length === 0) {
-      return { verdict: 'no-anchor', anchor: null, testId, rerun: null, classification: null, recommendation: null, notes: ['no failed test in output.xml'] };
+      return { verdict: 'no-anchor', anchor: null, testId, rerun: null, classification: null, recommendation: null, temporal: null, notes: ['no failed test in output.xml'] };
     }
     errorText = failures[0].message;
     testId = failures[0].testId;
@@ -82,7 +76,7 @@ export async function triage(opts) {
   const anchor = extractAnchor(errorText ?? '');
   if (!anchor.selector) {
     return {
-      verdict: 'no-anchor', anchor, testId, rerun: null, classification: null, recommendation: null,
+      verdict: 'no-anchor', anchor, testId, rerun: null, classification: null, recommendation: null, temporal: null,
       notes: [...notes, 'no locator found in the error; cannot triage without an anchor'],
     };
   }
@@ -101,41 +95,54 @@ export async function triage(opts) {
       notes.push(why);
       let temporal = null;
       if (opts.temporal) {
-        if (!isCssAnchor(anchor.selector)) {
-          notes.push('temporal probe skipped: the anchor is not a plain css selector, so the delay cannot target it');
+        const target = temporalTargetFor(anchor.selector);
+        if (!target) {
+          notes.push('temporal probe skipped: no sufficiently specific css target can be derived from the anchor');
         } else {
-          temporal = await temporalProbe(opts.rerunCommand, anchor.selector);
+          if (target !== anchor.selector) {
+            notes.push(`temporal delay targets the css base "${target}" derived from the anchor`);
+          }
+          temporal = await temporalProbe(opts.rerunCommand, target);
           if (temporal.reproduced) {
             notes.push(`fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`);
           } else if (temporal.control && temporal.control.failures > 0) {
             notes.push('temporal probe aborted: the control run without any delay already failed, so the baseline is too unstable to attribute failures to timing');
+          } else if (temporal.injected === false) {
+            notes.push('the inject wrapper never acknowledged the delay; install withTemporal from flakeproof/inject in the suite before trusting any timing verdict');
           } else {
-            notes.push('no reproduction; note this requires the flakeproof/inject wrapper in the suite and a css anchor');
+            notes.push('no reproduction: the delay style was installed on every round, but whether it affected the anchor is unverified; timing remains unlikely but not excluded');
           }
         }
       }
       return { verdict: 'nondeterministic', anchor, testId, rerun, temporal, classification: null, recommendation: null, notes };
     }
-    notes.push('test failed on every rerun; deterministic failure');
+    if (rerun.commandBroken) {
+      notes.push('every rerun exited with a spawn error or command-not-found; the rerun command itself looks broken and the rerun statistics are not meaningful');
+    } else {
+      notes.push('test failed on every rerun; deterministic failure');
+    }
+    if (opts.temporal) {
+      notes.push('temporal probe skipped: the test fails on every rerun, so there is no intermittency for a delay to explain');
+    }
   }
 
   const baseline = JSON.parse(await readFile(opts.baselinePath, 'utf8'));
   if (!baseline.html || !baseline.tree) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, 'baseline snapshot is missing tree or html'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'baseline snapshot is missing tree or html'] };
   }
 
   const resolved = await resolveAnchorPath(baseline, anchor.selector);
   if (resolved.error) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, 'anchor selector could not be evaluated against the baseline'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'anchor selector could not be evaluated against the baseline'] };
   }
   if (!resolved.path) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, 'anchor selector does not resolve in the baseline snapshot'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'anchor selector does not resolve in the baseline snapshot'] };
   }
   if (resolved.count > 1) notes.push(`anchor selector matches ${resolved.count} baseline elements, using the first`);
 
   const treeNode = nodeAt(baseline.tree, resolved.path);
   if (!treeNode || treeNode.tag !== resolved.tag || (treeNode.id ?? null) !== (resolved.id ?? null)) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, notes: [...notes, 'baseline html and serialized tree disagree at the anchor; cannot triage reliably'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'baseline html and serialized tree disagree at the anchor; cannot triage reliably'] };
   }
 
   const current = opts.currentPath
@@ -163,5 +170,5 @@ export async function triage(opts) {
     }
   }
 
-  return { verdict, anchor, testId, rerun, classification, recommendation, notes };
+  return { verdict, anchor, testId, rerun, classification, recommendation, temporal: null, notes };
 }

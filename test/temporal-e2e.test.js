@@ -16,6 +16,7 @@ test('temporal probe reproduces a timing failure in a real playwright run', asyn
     const result = await temporalProbe(COMMAND, '#cta', { delays: [1000], runsPerDelay: 1 });
     assert.equal(result.reproduced, true, 'a 1000 ms delay against a 400 ms budget must fail deterministically');
     assert.equal(result.delay, 1000);
+    assert.equal(result.injected, true, 'the real wrapper must acknowledge');
   } finally {
     delete process.env.FIXTURE_URL;
     await server.close();

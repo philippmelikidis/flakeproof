@@ -1,5 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { withTemporal } from '../src/inject/playwright.js';
 
 // withTemporal only needs base.extend; a stub keeps the test independent of
@@ -32,6 +36,9 @@ async function runContextFixture(wrapped, context) {
 test('injects the temporal script when both env vars are set', async () => {
   process.env.FLAKEPROOF_TEMPORAL_SELECTOR = '#cta';
   process.env.FLAKEPROOF_TEMPORAL_MS = '800';
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-ack-'));
+  const ackPath = join(ackDir, 'ack');
+  process.env.FLAKEPROOF_TEMPORAL_ACK = ackPath;
   try {
     const wrapped = withTemporal(stubBase());
     const context = stubContext();
@@ -40,26 +47,38 @@ test('injects the temporal script when both env vars are set', async () => {
     assert.equal(context.scripts.length, 1);
     assert.ok(context.scripts[0].includes('#cta'));
     assert.ok(context.scripts[0].includes('800'));
+    assert.equal(await readFile(ackPath, 'utf8'), 'injected', 'the wrapper must acknowledge the injection');
   } finally {
     delete process.env.FLAKEPROOF_TEMPORAL_SELECTOR;
     delete process.env.FLAKEPROOF_TEMPORAL_MS;
+    delete process.env.FLAKEPROOF_TEMPORAL_ACK;
+    await rm(ackDir, { recursive: true, force: true });
   }
 });
 
 test('does nothing without env vars or with an invalid delay', async () => {
-  const wrapped = withTemporal(stubBase());
-  const context = stubContext();
-  await runContextFixture(wrapped, context);
-  assert.equal(context.scripts.length, 0);
-
-  process.env.FLAKEPROOF_TEMPORAL_SELECTOR = '#cta';
-  process.env.FLAKEPROOF_TEMPORAL_MS = 'not-a-number';
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-ack-'));
+  const ackPath = join(ackDir, 'ack');
+  process.env.FLAKEPROOF_TEMPORAL_ACK = ackPath;
   try {
-    const context2 = stubContext();
-    await runContextFixture(withTemporal(stubBase()), context2);
-    assert.equal(context2.scripts.length, 0);
+    const wrapped = withTemporal(stubBase());
+    const context = stubContext();
+    await runContextFixture(wrapped, context);
+    assert.equal(context.scripts.length, 0);
+    assert.equal(existsSync(ackPath), false, 'no selector/ms means no injection, so no acknowledgment either');
+
+    process.env.FLAKEPROOF_TEMPORAL_SELECTOR = '#cta';
+    process.env.FLAKEPROOF_TEMPORAL_MS = 'not-a-number';
+    try {
+      const context2 = stubContext();
+      await runContextFixture(withTemporal(stubBase()), context2);
+      assert.equal(context2.scripts.length, 0);
+    } finally {
+      delete process.env.FLAKEPROOF_TEMPORAL_SELECTOR;
+      delete process.env.FLAKEPROOF_TEMPORAL_MS;
+    }
   } finally {
-    delete process.env.FLAKEPROOF_TEMPORAL_SELECTOR;
-    delete process.env.FLAKEPROOF_TEMPORAL_MS;
+    delete process.env.FLAKEPROOF_TEMPORAL_ACK;
+    await rm(ackDir, { recursive: true, force: true });
   }
 });
