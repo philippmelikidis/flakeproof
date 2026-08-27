@@ -8,6 +8,7 @@
 //
 // Without the env vars the wrapper is inert, so it can stay in place
 // permanently.
+import { writeFile } from 'node:fs/promises';
 import { temporalScript } from '../probe/temporal.js';
 
 export function withTemporal(base) {
@@ -17,6 +18,11 @@ export function withTemporal(base) {
       const ms = Number(process.env.FLAKEPROOF_TEMPORAL_MS);
       if (selector && Number.isFinite(ms) && ms > 0) {
         await context.addInitScript(temporalScript(selector, ms));
+        const ack = process.env.FLAKEPROOF_TEMPORAL_ACK;
+        // The acknowledgment lets the probe distinguish "delay never
+        // happened" from "timing is not the cause". Failing to write it must
+        // never break the user's test run.
+        if (ack) await writeFile(ack, 'injected').catch(() => {});
       }
       await use(context);
     },

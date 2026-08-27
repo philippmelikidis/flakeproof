@@ -1,8 +1,8 @@
-// Proves selector candidates against the cosmetic mutation catalog in a real
+// Proves selector candidates against the proving mutation catalog in a real
 // browser: mark the target, apply one mutation, then check that a candidate
 // still resolves to exactly the marked element.
 import { chromium } from 'playwright';
-import { cosmeticMutations } from '../probe/catalogs/cosmetic.js';
+import { provingMutations } from '../probe/catalogs/proving.js';
 
 // Runs inside the page. Self-contained.
 /* eslint-disable no-undef */
@@ -34,7 +34,7 @@ async function candidateHits(page, selector) {
   }
 }
 
-export async function proveCandidates(url, anchorPath, candidates, { mutations = cosmeticMutations } = {}) {
+export async function proveCandidates(url, anchorPath, candidates, { mutations = provingMutations } = {}) {
   const browser = await chromium.launch();
   try {
     const results = candidates.map((c) => ({ ...c, uniqueInCurrent: false, survived: 0, applied: 0 }));

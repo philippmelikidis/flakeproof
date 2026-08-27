@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFixtureServer } from './helpers/serve.js';
@@ -25,7 +25,8 @@ test('renderReport shows verdict, evidence and recommendation table', () => {
   assert.ok(md.includes('`li.css-1a2b3c`'));
   assert.ok(md.includes('| `#main-nav li:nth-child(1)` | positional | yes | 4/5 |'));
   assert.ok(md.includes('## Timing provocation'));
-  assert.ok(md.includes('- 500 ms: 2/2 runs failed'));
+  assert.ok(md.includes('- 500 ms: 2/2 runs failed (reproduces)'));
+  assert.ok(!md.includes('- 250 ms: 0/2 runs failed (reproduces)'));
 });
 
 test('renderReport does not show empty Timing provocation section', () => {
@@ -37,9 +38,11 @@ test('renderReport does not show empty Timing provocation section', () => {
 });
 
 test('cli snapshot and triage round-trip on the fixture page', async () => {
-  const server = await startFixtureServer();
+  let server = null;
+  let dir = null;
   try {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
     const baseline = join(dir, 'baseline.json');
     const errFile = join(dir, 'error.txt');
     await writeFile(errFile, "TimeoutError: locator.waitFor: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator('#cta') to be visible");
@@ -56,6 +59,7 @@ test('cli snapshot and triage round-trip on the fixture page', async () => {
     assert.equal(result.verdict, 'unclear');
     assert.equal(result.anchor.selector, '#cta');
   } finally {
-    await server.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });

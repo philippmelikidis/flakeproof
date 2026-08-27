@@ -6,9 +6,11 @@ import { serializeDom } from '../src/probe/serialize.js';
 import { nodeAt, findNode } from '../src/triage/tree.js';
 
 test('serializeDom captures the fixture header', async () => {
-  const server = await startFixtureServer();
-  const browser = await chromium.launch();
+  let server = null;
+  let browser = null;
   try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(server.url);
 
@@ -25,30 +27,34 @@ test('serializeDom captures the fixture header', async () => {
     assert.equal(anchor.text, 'Contact us');
     assert.equal(anchor.attrs.href, '/contact/');
   } finally {
-    await browser.close();
-    await server.close();
+    await browser?.close();
+    await server?.close();
   }
 });
 
 test('serializeDom returns null anchorPath for unmatched selector', async () => {
-  const server = await startFixtureServer();
-  const browser = await chromium.launch();
+  let server = null;
+  let browser = null;
   try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(server.url);
 
     const snap = await page.evaluate(serializeDom, '#does-not-exist');
     assert.equal(snap.anchorPath, null);
   } finally {
-    await browser.close();
-    await server.close();
+    await browser?.close();
+    await server?.close();
   }
 });
 
 test('serializeDom emits explicit and implicit roles', async () => {
-  const server = await startFixtureServer();
-  const browser = await chromium.launch();
+  let server = null;
+  let browser = null;
   try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(server.url);
     const snap = await page.evaluate(serializeDom, null);
@@ -57,7 +63,7 @@ test('serializeDom emits explicit and implicit roles', async () => {
     const cta = findNode(snap.tree, (x) => x.id === 'cta');
     assert.equal(cta.role, 'link');
   } finally {
-    await browser.close();
-    await server.close();
+    await browser?.close();
+    await server?.close();
   }
 });

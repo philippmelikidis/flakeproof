@@ -46,7 +46,7 @@ flakeproof extracts the anchor (the locator the test was hanging on) from the re
 | `unclear` | evidence is mixed or missing: flakeproof does not guess |
 | `no-anchor` | the error names no locator, nothing to triage against |
 
-For fragile tests the report includes selector recommendations that are proven, not guessed: every candidate is run against the cosmetic mutation catalog in a real browser, and only survivors are ranked.
+For fragile tests the report includes selector recommendations that are proven, not guessed: every candidate is run against the proving catalog in a real browser (the cosmetic mutations plus a copy tweak, so text based candidates cannot win by construction), and only survivors are ranked.
 
 ```
 # flakeproof triage
@@ -79,6 +79,8 @@ Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or
 ### Catching missing waits
 
 Flaky tests usually mean a missing wait, but nobody can point at it. With the temporal lane flakeproof finds it: pass `--temporal` together with `--rerun-cmd`, and when reruns disagree, flakeproof reruns the test with the anchor element deliberately delayed by increasing amounts until the failure reproduces on every run. The report then says: `fails on every run when "#submit" appears 500 ms late; likely a missing wait`.
+
+Two guards keep that claim honest: a control run without any delay must pass first (a baseline that already fails on its own aborts the probe instead of blaming timing), and the inject wrapper acknowledges every injection, so a missing setup is reported as exactly that rather than being mistaken for proof that timing is fine.
 
 This needs a one-time, permanently inert setup in your Playwright suite:
 

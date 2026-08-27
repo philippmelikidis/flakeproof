@@ -9,9 +9,11 @@ import { cosmeticMutations } from '../src/probe/catalogs/cosmetic.js';
 function byId(id) { return (n) => n.id === id; }
 
 test('every cosmetic mutation applies to a suitable target and changes the DOM', async () => {
-  const server = await startFixtureServer();
-  const browser = await chromium.launch();
+  let server = null;
+  let browser = null;
   try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
     // Suitable target per mutation: rename-hashed-class needs a hashed class.
     const targets = {
       'wrap-element': '#cta',
@@ -34,15 +36,17 @@ test('every cosmetic mutation applies to a suitable target and changes the DOM',
 
     assert.equal(Object.keys(targets).length, cosmeticMutations.length);
   } finally {
-    await browser.close();
-    await server.close();
+    await browser?.close();
+    await server?.close();
   }
 });
 
 test('wrap-element inserts one extra ancestor level', async () => {
-  const server = await startFixtureServer();
-  const browser = await chromium.launch();
+  let server = null;
+  let browser = null;
   try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(server.url);
 
@@ -55,7 +59,7 @@ test('wrap-element inserts one extra ancestor level', async () => {
     const afterCta = findNode(after.tree, byId('cta'));
     assert.equal(afterCta.path.length, beforeCta.path.length + 1);
   } finally {
-    await browser.close();
-    await server.close();
+    await browser?.close();
+    await server?.close();
   }
 });
