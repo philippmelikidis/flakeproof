@@ -64,8 +64,9 @@ test('candidatesFor falls back to a positional candidate for anonymous elements'
   const t = tree();
   const liPath = [0, 0, 0, 0, 0]; // body > header > nav > ul > li(1)
   const cands = candidatesFor(t, liPath);
-  assert.deepEqual(cands.map((c) => c.selector), ['#main-nav li:nth-child(1)']);
-  assert.equal(cands[0].kind, 'positional');
+  assert.ok(cands.some((c) => c.kind === 'container-text'), 'container-text candidate available');
+  assert.ok(cands.some((c) => c.kind === 'positional'), 'positional candidate available');
+  assert.equal(cands[0].kind, 'container-text', 'container-text ranks above positional');
 });
 
 test('text and role candidates are generated for text-bearing elements', () => {
@@ -110,4 +111,57 @@ test('role candidate is withheld for a node with element children and no explici
   const cands = candidatesFor(t, [0, 0]);
   assert.ok(!cands.some((c) => c.kind === 'role'), 'accessible name cannot be approximated from own text when element children exist');
   assert.ok(cands.some((c) => c.kind === 'text'), 'own-text candidate is unaffected and stays since the text is unique');
+});
+
+test('an anonymous element gets a container-text candidate from its unique child text', () => {
+  const t = withPaths(
+    n('html', {}, [
+      n('body', {}, [
+        n('nav', { id: 'main-nav' }, [
+          n('ul', {}, [
+            n('li', { classes: ['css-1a2b3c'] }, [n('a', { text: 'Products', attrs: { href: '/products/' } })]),
+            n('li', { classes: ['css-9z8y7x'] }, [n('a', { text: 'Solutions', attrs: { href: '/solutions/' } })]),
+          ]),
+        ]),
+      ]),
+    ]),
+  );
+  const cands = candidatesFor(t, [0, 0, 0, 0]); // body > nav > ul > li(1)
+  const ct = cands.find((c) => c.kind === 'container-text');
+  assert.ok(ct, 'anonymous li must get a container-text candidate');
+  assert.equal(ct.selector, '#main-nav li:has-text("Products")');
+});
+
+test('container-text is dropped when the child text is not unique', () => {
+  const t = withPaths(
+    n('html', {}, [
+      n('body', {}, [
+        n('nav', { id: 'main-nav' }, [
+          n('ul', {}, [
+            n('li', {}, [n('a', { text: 'Mehr', attrs: { href: '/a/' } })]),
+            n('li', {}, [n('a', { text: 'Mehr', attrs: { href: '/b/' } })]),
+          ]),
+        ]),
+      ]),
+    ]),
+  );
+  const cands = candidatesFor(t, [0, 0, 0, 0]);
+  assert.ok(!cands.some((c) => c.kind === 'container-text'), 'ambiguous child text must not become a candidate');
+});
+
+test('container-text ranks above positional', () => {
+  const t = withPaths(
+    n('html', {}, [
+      n('body', {}, [
+        n('nav', { id: 'main-nav' }, [
+          n('ul', {}, [n('li', {}, [n('a', { text: 'Products', attrs: { href: '/products/' } })])]),
+        ]),
+      ]),
+    ]),
+  );
+  const kinds = candidatesFor(t, [0, 0, 0, 0]).map((c) => c.kind);
+  const ct = kinds.indexOf('container-text');
+  const pos = kinds.indexOf('positional');
+  assert.ok(ct !== -1 && pos !== -1, `expected both kinds, got ${kinds.join(', ')}`);
+  assert.ok(ct < pos, 'container-text must rank above positional');
 });

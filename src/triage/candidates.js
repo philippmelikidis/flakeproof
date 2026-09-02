@@ -41,6 +41,18 @@ function countByText(tree, text) {
   return count;
 }
 
+// How many elements in the tree have exactly one child carrying this text.
+// Used to approximate the uniqueness of a container-text selector; the
+// prover verifies it for real on the live page.
+function countByChildText(tree, tag, text) {
+  let count = 0;
+  walk(tree, (node) => {
+    if (node.tag !== tag) return;
+    if (node.children.some((c) => c.text === text)) count += 1;
+  });
+  return count;
+}
+
 function countByRoleName(tree, role, name) {
   let count = 0;
   walk(tree, (node) => {
@@ -99,6 +111,17 @@ export function candidatesFor(tree, path) {
   if (node.role && roleName && nameApproximable && roleName.length <= 80 && !roleName.includes('"')) {
     raw.push({ selector: `role=${node.role}[name="${roleName}"]`, kind: 'role' });
   }
+  // A container bound by its child's text. For an anonymous element (no id,
+  // no own text) this is the only stable alternative to a positional
+  // selector: it survives both class churn and reordering.
+  const scope = [...ancestorsOf(tree, path)].reverse().find((a) => a.id);
+  const childTexts = node.children.map((c) => c.text).filter(Boolean);
+  if (!node.text && scope && childTexts.length === 1) {
+    const ct = childTexts[0];
+    if (ct.length <= 80 && !ct.includes('"')) {
+      raw.push({ selector: `#${scope.id} ${node.tag}:has-text("${ct}")`, kind: 'container-text' });
+    }
+  }
   const stable = node.classes.filter((c) => !HASHED_CLASS.test(c));
   for (const cls of stable) raw.push({ selector: `${node.tag}.${cls}`, kind: 'class' });
 
@@ -118,6 +141,10 @@ export function candidatesFor(tree, path) {
     seen.add(cand.selector);
     if (cand.kind === 'text') return countByText(tree, node.text) === 1;
     if (cand.kind === 'role') return countByRoleName(tree, node.role, node.name || node.text) === 1;
+    if (cand.kind === 'container-text') {
+      const ct = node.children.map((c) => c.text).filter(Boolean)[0];
+      return countByChildText(tree, node.tag, ct) === 1;
+    }
     const hits = queryTree(tree, cand.selector);
     return hits !== null && hits.length === 1 && hits[0] === node;
   });

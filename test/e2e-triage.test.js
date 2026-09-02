@@ -39,7 +39,7 @@ test('hashed-class selector against the cosmetic build is fragile, with a proven
     assert.equal(result.verdict, 'fragile');
     assert.ok(result.recommendation?.length, 'must recommend selectors');
     const top = result.recommendation[0];
-    assert.equal(top.selector, '#main-nav li:nth-child(1)');
+    assert.equal(top.selector, '#main-nav li:has-text("Products")');
     assert.ok(top.survived >= 3, `recommendation must be proven, got ${top.survived}/${top.applied}`);
   } finally {
     await v2?.close();
