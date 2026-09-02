@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>flakeproof blindspots hydration fixture (late)</title></head>
+<body>
+  <header id="site-header">
+    <h1 id="header-title">Welcome to Acme</h1>
+    <a id="cta" href="/contact/">Contact us</a>
+  </header>
+  <main id="content"><p>Body copy that nothing in the blind suite asserts on.</p></main>
+  <script>
+    // Same ordinary client-side hydration as hydrate.html, but delayed well
+    // past blindspots' SETTLE_MS (300ms, see src/probe/mutation-script.js) -
+    // this is the exact reproduction from the second review round: a revert
+    // landing after the old fixed settle window had already closed was
+    // invisible to the old code, and a demonstrably sensitive suite was
+    // reported as blind (`survived: true, noticed: false`).
+    setTimeout(() => {
+      document.getElementById('header-title').textContent = 'Welcome to Acme';
+    }, 900);
+  </script>
+</body>
+</html>

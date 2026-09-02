@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>flakeproof blindspots reparent fixture</title></head>
+<body>
+  <header id="site-header">
+    <h1 id="header-title">Welcome to Acme</h1>
+  </header>
+  <script>
+    // An async DOM re-parent: the target is detached from the document in
+    // one task, then reattached (with its content fully intact) in a later
+    // one - a pattern real UI libraries use for list reordering or
+    // portal-style rendering. document.querySelector cannot see a detached
+    // element, so this reads exactly like a revert for one instant. It must
+    // never be reported as one: the mutation is still there once the dust
+    // settles.
+    setTimeout(() => {
+      const el = document.getElementById('header-title');
+      const parent = el.parentNode;
+      parent.removeChild(el);
+      setTimeout(() => parent.appendChild(el), 20);
+    }, 200);
+  </script>
+</body>
+</html>

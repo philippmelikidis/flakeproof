@@ -45,6 +45,26 @@ test('stale FLAKEPROOF_TEMPORAL_MS from the parent environment is not inherited'
   }
 });
 
+test('stale FLAKEPROOF_MUTATION_ID from the parent environment (the other probe lane) is not inherited either', async () => {
+  // Fix 5 in the review: rerunStats previously stripped only its own
+  // FLAKEPROOF_TEMPORAL_* family, so a blindspots mutation left exported in
+  // the same shell would leak into a temporal control round and turn its
+  // baseline red for a reason that has nothing to do with timing, silently
+  // losing the temporal finding.
+  let dir = null;
+  process.env.FLAKEPROOF_MUTATION_ID = 'change-text';
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-rerun-'));
+    const script = join(dir, 'sensitive.cjs');
+    await writeFile(script, 'process.exit(process.env.FLAKEPROOF_MUTATION_ID ? 1 : 0);');
+    const stats = await rerunStats(`node ${script}`, 1);
+    assert.equal(stats.failures, 0);
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('a command that cannot run at all is flagged as broken', async () => {
   const stats = await rerunStats('definitely-not-a-command-fp-2b', 2);
   assert.equal(stats.failures, 2);

@@ -17,3 +17,11 @@ test('a command that cannot start is reported, not thrown', async () => {
   const r = await runTests('definitely-not-a-command-fp-runner');
   assert.ok(r.exitCode !== 0, 'must not look successful');
 });
+
+test('extra env vars reach the child process without discarding the inherited environment', async () => {
+  const r = await runTests('node -e "process.stdout.write(process.env.FP_TEST_VAR + \'|\' + typeof process.env.PATH)"', {
+    env: { FP_TEST_VAR: 'hello' },
+  });
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.stdout, 'hello|string');
+});
