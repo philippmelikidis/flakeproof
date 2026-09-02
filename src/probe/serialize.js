@@ -10,8 +10,9 @@ export function serializeDom(anchorSelector) {
   // Bumped to 2 when the per-node `html` field was removed (see below):
   // every node used to carry a bounded outerHTML snippet, which on the
   // 21-node fixture more than doubled the snapshot's size and, since every
-  // ancestor serializes its whole subtree first via outerHTML, approaches
-  // quadratic cost on large pages. Only two nodes per report (the anchor
+  // ancestor serializes its whole subtree first via outerHTML, is reasoned
+  // (not measured) to grow superlinearly with nesting depth on large pages.
+  // Only two nodes per report (the anchor
   // before and after) ever consumed it. Report time now reconstructs those
   // two snippets on demand from the snapshot's top-level `html` (the full
   // page, stored once) plus the node's `path`, via

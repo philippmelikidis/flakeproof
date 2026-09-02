@@ -10,11 +10,24 @@
 // This module does not run in a browser: it operates on the raw html
 // string alone with a small hand-rolled tag scanner, so it works for the
 // "unproven" path too (a serialized `--current <file>` with no live page).
+// A hand-rolled scanner can never be as authoritative as the browser that
+// actually parsed this markup - see the self-check at the bottom of
+// nodeHtmlAtPath, which exists specifically to turn a scanner mistake into
+// an honest null instead of a confidently wrong snippet.
 
 const VOID_ELEMENTS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
   'param', 'source', 'track', 'wbr',
 ]);
+
+// Elements whose body is raw text (script) or escapable raw text
+// (everything else here): per the HTML parsing spec, NOTHING inside them is
+// markup except the exact matching close tag - not `<`, not `</div>`, not a
+// `<` comparison operator in a script. Scanning their body with the general
+// tag grammar is exactly the bug this set exists to prevent: a `<` or `</`
+// that is just JS/CSS/text content gets consumed as a real tag, corrupting
+// every subsequent child index for the rest of the document.
+const RAWTEXT_TAGS = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'noembed', 'noframes']);
 
 // Matches, in order of preference: html comments (skipped entirely - they
 // are not elements and must not perturb child indices), closing tags, and
@@ -23,19 +36,51 @@ const VOID_ELEMENTS = new Set([
 // does not terminate the tag early.
 const TAG_RE = /<!--[\s\S]*?-->|<\/([a-zA-Z][\w:-]*)\s*>|<([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
 
+// Locates the literal close tag for a raw-text element starting the search
+// at `fromIndex` (right after the open tag). Case-insensitive, optional
+// whitespace before `>`, matching how browsers recognize `</script>`,
+// `</SCRIPT>` and `</script >` alike. Returns null when no close tag exists
+// anywhere in the rest of the document - truncated or malformed markup that
+// this scanner must not guess through.
+function findRawTextClose(html, tag, fromIndex) {
+  const closeRe = new RegExp(`</${tag}\\s*>`, 'i');
+  const m = closeRe.exec(html.slice(fromIndex));
+  if (!m) return null;
+  return { start: fromIndex + m.index, end: fromIndex + m.index + m[0].length };
+}
+
+// Tokenizes the whole document into open/close/selfclose tag markers.
+// Returns null - never a partial token list - when a raw-text element (a
+// <script> or <style> with no matching close tag anywhere after it) cannot
+// be resolved: everything past that point is genuinely unknown, and letting
+// the scan continue as if the raw-text body were ordinary markup is exactly
+// how a `<` inside a script silently corrupts every sibling that follows.
 function tokenizeTags(html) {
   const tokens = [];
-  let m;
-  TAG_RE.lastIndex = 0;
-  while ((m = TAG_RE.exec(html))) {
-    if (m[0].startsWith('<!--')) continue;
+  let index = 0;
+  while (index <= html.length) {
+    TAG_RE.lastIndex = index;
+    const m = TAG_RE.exec(html);
+    if (!m) break;
+    if (m[0].startsWith('<!--')) {
+      index = TAG_RE.lastIndex;
+      continue;
+    }
     if (m[1]) {
       tokens.push({ type: 'close', tag: m[1].toLowerCase(), start: m.index, end: TAG_RE.lastIndex });
-    } else {
-      const tag = m[2].toLowerCase();
-      const attrs = m[3] || '';
-      const selfClosing = /\/\s*$/.test(attrs) || VOID_ELEMENTS.has(tag);
-      tokens.push({ type: selfClosing ? 'selfclose' : 'open', tag, start: m.index, end: TAG_RE.lastIndex });
+      index = TAG_RE.lastIndex;
+      continue;
+    }
+    const tag = m[2].toLowerCase();
+    const attrs = m[3] || '';
+    const selfClosing = /\/\s*$/.test(attrs) || VOID_ELEMENTS.has(tag);
+    tokens.push({ type: selfClosing ? 'selfclose' : 'open', tag, start: m.index, end: TAG_RE.lastIndex });
+    index = TAG_RE.lastIndex;
+    if (!selfClosing && RAWTEXT_TAGS.has(tag)) {
+      const close = findRawTextClose(html, tag, index);
+      if (!close) return null; // unterminated raw-text element: fail closed, never a partial result
+      tokens.push({ type: 'close', tag, start: close.start, end: close.end });
+      index = close.end;
     }
   }
   return tokens;
@@ -88,6 +133,13 @@ function nthChildElement(tokens, lo, hi, n) {
   return -1;
 }
 
+// The tag name the reconstructed snippet actually starts with, or null if
+// it does not even look like a tag.
+function leadingTag(s) {
+  const m = /^<([a-zA-Z][\w:-]*)/.exec(s);
+  return m ? m[1].toLowerCase() : null;
+}
+
 // Returns the outerHTML of the element at `path` within `html` (a
 // child-element-index path exactly like the ones serializeDom records),
 // bounded to `maxLen` characters the same way the old per-node snippet was.
@@ -98,13 +150,28 @@ function nthChildElement(tokens, lo, hi, n) {
 // (serializeDom's root is document.documentElement, and the snapshot's
 // `html` field is exactly document.documentElement.outerHTML), so it is
 // returned directly without running the scanner at all.
-export function nodeHtmlAtPath(html, path, maxLen = 400) {
+//
+// `expectedTag` is the tag name the CALLER already knows this path should
+// resolve to (the same node's `tag` field from the serialized tree). This
+// scanner is a hand-rolled approximation of HTML parsing, not a real
+// parser, so it can never be as authoritative as the browser that produced
+// this markup: a bug in this file, or a shape mismatch between the tree and
+// the html it was paired with, must never surface as a confidently wrong
+// snippet for a DIFFERENT element. Verifying that the reconstructed
+// snippet's own leading tag matches what the caller expected turns that
+// failure mode into an honest null instead - fail loudly, never guess.
+export function nodeHtmlAtPath(html, path, expectedTag, maxLen = 400) {
   if (typeof html !== 'string' || !html) return null;
   const bound = (s) => (s.length > maxLen ? s.slice(0, maxLen) + ' ...' : s);
-  if (!path || path.length === 0) return bound(html);
+  const verify = (s) => {
+    if (s === null) return null;
+    if (expectedTag && leadingTag(s) !== String(expectedTag).toLowerCase()) return null;
+    return s;
+  };
+  if (!path || path.length === 0) return verify(bound(html));
 
   const tokens = tokenizeTags(html);
-  if (!tokens.length || tokens[0].type !== 'open') return null;
+  if (!tokens || !tokens.length || tokens[0].type !== 'open') return null;
   let span = elementSpan(tokens, 0);
   if (!span) return null;
   for (const idx of path) {
@@ -113,5 +180,5 @@ export function nodeHtmlAtPath(html, path, maxLen = 400) {
     span = elementSpan(tokens, childIdx);
     if (!span) return null;
   }
-  return bound(html.slice(span.start, span.end));
+  return verify(bound(html.slice(span.start, span.end)));
 }

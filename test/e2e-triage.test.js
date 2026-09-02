@@ -131,6 +131,55 @@ test('fragile with a current file yields unproven candidates, honestly labeled',
   }
 });
 
+test('a --current <file> whose html cannot be walked to the matched node is reported honestly, not as "no html snippet"', async () => {
+  // Only the CURRENT side can be loaded from a hand-built file with no
+  // browser involved at all (the baseline always gets re-resolved against a
+  // real page via resolveAnchorPath). That makes it the easy, deterministic
+  // way to reproduce a genuine snapshot/html shape mismatch: swap the whole
+  // `html` field for a document that shares nothing with `tree`, so
+  // src/probe/snippet.js#nodeHtmlAtPath cannot walk to the matched node at
+  // all. This must read as "the stored page html could not be walked to
+  // this element", never as "no html snippet in this snapshot" (both halves
+  // of that message would be false: the snapshot does have html, and a
+  // fresh baseline of the same page would fail to resolve it the same way).
+  let dir = null;
+  let v2 = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-e2e-'));
+    const baselinePath = await baselineOfV1(dir);
+    v2 = await startFixtureServer({ root: join(fixtures, 'page-v2') });
+    const currentSnapshot = await captureSnapshot(v2.url);
+    currentSnapshot.html = '<html><head></head><body><div>completely unrelated document</div></body></html>';
+    const currentPath = join(dir, 'current.json');
+    await writeFile(currentPath, JSON.stringify(currentSnapshot));
+
+    const result = await triage({
+      errorText: timeoutError('li.css-1a2b3c'),
+      baselinePath,
+      currentPath,
+    });
+
+    assert.equal(result.verdict, 'fragile');
+    assert.ok(result.detail.anchorAfter, 'a match must still have been found in the tree');
+    assert.equal(result.detail.anchorAfter.htmlUnresolved, true);
+    assert.equal('html' in result.detail.anchorAfter, false);
+    assert.ok(
+      result.notes.some((n) => n.includes('could not be walked') && n.includes('after (current)')),
+      `expected a note naming the failed side, got: ${JSON.stringify(result.notes)}`,
+    );
+
+    const md = renderReport(result);
+    assert.ok(md.includes('could not be walked'), 'the markdown report must carry the note too');
+
+    const html = renderHtmlReport(result);
+    assert.ok(html.includes('The stored page html could not be walked to this element'));
+    assert.ok(!html.includes('No html snippet in this snapshot'), 'must not claim the snapshot has no html at all');
+  } finally {
+    await v2?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('the html report of a real fragile run names both the container and the positional candidate', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'fp-e2e-'));
   const baselinePath = await baselineOfV1(dir);

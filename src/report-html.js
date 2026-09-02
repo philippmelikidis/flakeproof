@@ -37,11 +37,27 @@ function describe(node, missingText) {
 // attribute change marks the entire element. Splitting at tag and attribute
 // boundaries means only the attribute (or word) that actually changed gets
 // marked, even when nothing around it has any whitespace.
+//
+// Losslessness is a hard requirement here, not just a nicety: every
+// character of the input must land in exactly one token, so that
+// concatenating the tokens reproduces the input exactly (see the round-trip
+// test in test/report-html.test.js). The previous version only pushed
+// tokens it recognized and silently dropped everything else - whitespace
+// between attributes, in particular - so `<li class="a">` rendered back as
+// `<liclass="a">`: markup the page does not actually contain. Any character
+// range the recognizer grammar does not match (a gap) is pushed verbatim as
+// its own token instead of being dropped.
 function tokenizeTag(tag) {
   const tokens = [];
-  const ATTR_RE = /<\/?[A-Za-z][\w-]*|[A-Za-z_:][\w:.-]*="[^"]*"|[A-Za-z_:][\w:.-]*='[^']*'|[A-Za-z_:][\w:.-]*(?=[\s/>])|\/?>/g;
+  const ATTR_RE = /<\/?[A-Za-z][\w-]*|[A-Za-z_:][\w:.-]*="[^"]*"|[A-Za-z_:][\w:.-]*='[^']*'|[A-Za-z_:][\w:.-]*(?=[\s/>]|$)|\/?>/g;
+  let last = 0;
   let m;
-  while ((m = ATTR_RE.exec(tag))) tokens.push(m[0]);
+  while ((m = ATTR_RE.exec(tag))) {
+    if (m.index > last) tokens.push(tag.slice(last, m.index));
+    tokens.push(m[0]);
+    last = ATTR_RE.lastIndex;
+  }
+  if (last < tag.length) tokens.push(tag.slice(last));
   return tokens;
 }
 
@@ -49,9 +65,18 @@ function tokenizeText(text) {
   return text.match(/[A-Za-z0-9]+|[^\sA-Za-z0-9]|\s+/g) || [];
 }
 
+// Finds each complete tag in the snippet, exactly like
+// src/probe/snippet.js's TAG_RE: a naive `<\/?[^>]*>` stops at the FIRST
+// `>`, so an attribute value containing one (`data-note="a > b"`) splits the
+// tag in half, dropping the attribute name and mangling everything after it
+// into the surrounding text. Quoted attribute values are consumed as a unit
+// via `(?:"[^"]*"|'[^']*'|[^'">])*` so an embedded `>` cannot terminate the
+// tag early.
+const TAG_RE = /<\/[a-zA-Z][\w:-]*\s*>|<[a-zA-Z][\w:-]*(?:"[^"]*"|'[^']*'|[^'">])*>/g;
+
 function tokenize(html) {
   const tokens = [];
-  const TAG_RE = /<\/?[^>]*>/g;
+  TAG_RE.lastIndex = 0;
   let lastIndex = 0;
   let m;
   while ((m = TAG_RE.exec(html))) {
@@ -131,8 +156,9 @@ function renderSide(ops, markType, markClass) {
 // `diff-removed`, the after side marks what showed up with `diff-added`.
 // Two distinct classes (styled differently, with a legend) so a reader can
 // tell removal from addition at a glance instead of one undifferentiated
-// <mark>, which is what the report spec asks for ("entfernte und
-// hinzugekommene Teile hervorgehoben").
+// <mark>, which is what the report spec asks for: the removed and added
+// parts of the html snippet highlighted separately (see
+// docs/superpowers/specs/2026-08-28-visual-report-design.md).
 function diffSnippets(beforeHtml, afterHtml) {
   const ops = diffTokens(tokenize(beforeHtml), tokenize(afterHtml));
   const before = renderSide(ops.filter((o) => o.type !== 'added'), 'removed', 'diff-removed');
@@ -163,7 +189,6 @@ const CSS = `
   mark.diff-removed { background: #fde2e1; color: #9b2c2c; text-decoration: line-through; }
   mark.diff-added { background: #d7f5df; color: #1f7a4d; text-decoration: none; }
   .diff-legend { margin: 0 0 8px; }
-  .diff-legend mark { text-decoration: none; }
   ul.plain { list-style: none; padding: 0; margin: 0; }
   ul.plain li { padding: 8px 0; border-bottom: 1px solid #efece8; }
   ul.plain li:last-child { border-bottom: none; }
@@ -185,7 +210,19 @@ function section(title, body) {
 // without html capture) has no `html` field. Diffing against a missing
 // snippet would mark the entire other side as "changed", which is not true;
 // say so instead, and only diff when both sides actually have a snippet.
+//
+// A node can also lack `html` for a completely different reason: the
+// snapshot DOES carry a full-page html, but src/probe/snippet.js could not
+// walk it to this element (malformed markup, or a shape mismatch the
+// leading-tag self-check caught). src/triage/engine.js#withHtmlSnippet
+// marks that case with `htmlUnresolved` so it is never confused with "this
+// snapshot has no html at all" - both halves of that message would be false
+// here: the snapshot does have html, and a fresh baseline of the same page
+// would fail to resolve it the same way.
 function snippet(node, diffedHtml) {
+  if (node.htmlUnresolved) {
+    return '<p class="muted">The stored page html could not be walked to this element, so the snippet is omitted rather than guessed at.</p>';
+  }
   if (!node.html) {
     return '<p class="muted">No html snippet in this snapshot. Capture a fresh baseline to see the difference highlighted.</p>';
   }
