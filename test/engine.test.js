@@ -10,9 +10,21 @@ import { triage } from '../src/triage/engine.js';
 
 const ROBOT_OUTPUT_FAIL = fileURLToPath(new URL('./fixtures/rf/output-fail.xml', import.meta.url));
 const FIXTURE_DIR = fileURLToPath(new URL('./fixtures/page/', import.meta.url));
+const fixtures = fileURLToPath(new URL('./fixtures', import.meta.url));
 
 const timeoutError = (selector) =>
   `TimeoutError: locator.waitFor: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator('${selector}') to be visible`;
+
+async function baselineOfV1(dir) {
+  const v1 = await startFixtureServer();
+  try {
+    const baselinePath = join(dir, 'baseline.json');
+    await writeFile(baselinePath, JSON.stringify(await captureSnapshot(v1.url)));
+    return baselinePath;
+  } finally {
+    await v1.close();
+  }
+}
 
 test('no locator in the error yields no-anchor', async () => {
   const result = await triage({ errorText: 'AssertionError: Should Be Equal failed: A != B' });
@@ -317,5 +329,36 @@ test('a broken rerun command is named instead of trusted', async () => {
   } finally {
     await server?.close();
     if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('every result carries a step log', async () => {
+  const result = await triage({ errorText: 'AssertionError: Should Be Equal failed: A != B' });
+  assert.equal(result.verdict, 'no-anchor');
+  assert.ok(result.detail, 'detail must be present');
+  assert.ok(result.detail.steps.length >= 1, 'the anchor step must be logged');
+  assert.equal(result.detail.steps[0].ok, false);
+});
+
+test('a fragile verdict records both anchor states and the proving step', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+  const baselinePath = await baselineOfV1(dir);
+  const v2 = await startFixtureServer({ root: join(fixtures, 'page-v2') });
+  try {
+    const result = await triage({
+      errorText: timeoutError('li.css-1a2b3c'),
+      baselinePath,
+      currentUrl: v2.url,
+    });
+    assert.equal(result.verdict, 'fragile');
+    assert.equal(result.detail.anchorBefore.tag, 'li');
+    assert.ok(result.detail.anchorBefore.html.includes('css-1a2b3c'));
+    assert.ok(result.detail.anchorAfter, 'the matched element must be recorded');
+    const labels = result.detail.steps.map((s) => s.label);
+    assert.ok(labels.some((l) => /anchor/i.test(l)), `expected an anchor step, got ${labels.join(' | ')}`);
+    assert.ok(labels.some((l) => /prov/i.test(l)), `expected a proving step, got ${labels.join(' | ')}`);
+  } finally {
+    await v2.close();
+    await rm(dir, { recursive: true, force: true });
   }
 });

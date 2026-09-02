@@ -19,7 +19,12 @@ export function renderReport(r) {
       lines.push('| selector | kind | unique | survived mutations |');
       lines.push('|---|---|---|---|');
       for (const c of shown) {
-        const proof = c.survived === null ? 'not proven (no current URL)' : `${c.survived}/${c.applied}`;
+        let proof;
+        if (c.survived === null) {
+          proof = c.unproven === 'failed' ? 'not proven (proving failed)' : 'not proven (no current URL)';
+        } else {
+          proof = `${c.survived}/${c.applied}`;
+        }
         const unique = c.uniqueInCurrent === null ? 'unknown' : c.uniqueInCurrent ? 'yes' : 'no';
         lines.push(`| \`${c.selector}\` | ${c.kind} | ${unique} | ${proof} |`);
       }

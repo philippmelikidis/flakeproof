@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFixtureServer } from './helpers/serve.js';
@@ -61,5 +61,45 @@ test('cli snapshot and triage round-trip on the fixture page', async () => {
   } finally {
     await server?.close();
     if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('cli writes a self-contained html report when the output ends in .html', async () => {
+  const server = await startFixtureServer();
+  const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+  try {
+    const baseline = join(dir, 'baseline.json');
+    const errFile = join(dir, 'error.txt');
+    const outFile = join(dir, 'report.html');
+    await writeFile(errFile, "TimeoutError: locator.waitFor: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator('#cta') to be visible");
+
+    await run('node', ['bin/flakeproof.js', 'snapshot', server.url, '--out', baseline]);
+    await run('node', ['bin/flakeproof.js', 'triage', '--baseline', baseline, '--error-file', errFile, '--current', baseline, '--out', outFile]);
+
+    const html = await readFile(outFile, 'utf8');
+    assert.ok(html.startsWith('<!doctype html>'));
+    assert.ok(html.includes('What flakeproof did'));
+    assert.ok(!/<script/i.test(html));
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a missing desktop opener does not fail a run that produced a verdict', async () => {
+  const server = await startFixtureServer();
+  const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+  try {
+    const baseline = join(dir, 'baseline.json');
+    const errFile = join(dir, 'error.txt');
+    const outFile = join(dir, 'report.html');
+    await writeFile(errFile, "TimeoutError: locator.waitFor: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator('#cta') to be visible");
+    await run(process.execPath, ['bin/flakeproof.js', 'snapshot', server.url, '--out', baseline]);
+    await run(process.execPath, ['bin/flakeproof.js', 'triage', '--baseline', baseline, '--error-file', errFile, '--current', baseline, '--out', outFile, '--open'], { env: { ...process.env, PATH: '' } });
+    const html = await readFile(outFile, 'utf8');
+    assert.ok(html.startsWith('<!doctype html>'), 'the report is still written');
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
   }
 });

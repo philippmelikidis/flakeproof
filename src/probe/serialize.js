@@ -2,6 +2,7 @@
 // no imports, no references to module scope.
 export function serializeDom(anchorSelector) {
   const MAX_TEXT = 120;
+  const MAX_HTML = 400;
 
   const IMPLICIT_ROLES = {
     a: 'link', button: 'button', nav: 'navigation', header: 'banner',
@@ -46,6 +47,7 @@ export function serializeDom(anchorSelector) {
       text: ownText(el),
       name: accessibleName(el),
       role: el.getAttribute('role') || IMPLICIT_ROLES[el.tagName.toLowerCase()] || '',
+      html: el.outerHTML.length > MAX_HTML ? el.outerHTML.slice(0, MAX_HTML) + ' ...' : el.outerHTML,
       path,
       children,
     };
