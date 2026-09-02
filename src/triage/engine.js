@@ -181,12 +181,12 @@ export async function triage(opts) {
         recommendation = await proveCandidates(opts.currentUrl, classification.match.path, candidates);
         step('Proved candidates in a real browser', recommendation.length + ' candidates tested');
       } catch (err) {
-        recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null }));
+        recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null, unproven: 'failed' }));
         notes.push('could not prove candidates against the current build: ' + err.message);
         step('Proved candidates in a real browser', 'failed: ' + err.message, false);
       }
     } else {
-      recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null }));
+      recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null, unproven: 'no-url' }));
       notes.push('candidates are uniqueness-checked against the baseline only; text and role uniqueness is approximated, not verified; pass a current URL to prove them against mutations');
       step('Candidates checked against the baseline only', candidates.length + ' candidates, not proven', false);
     }

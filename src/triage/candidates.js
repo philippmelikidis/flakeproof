@@ -41,14 +41,22 @@ function countByText(tree, text) {
   return count;
 }
 
-// How many elements in the tree have exactly one child carrying this text.
-// Used to approximate the uniqueness of a container-text selector; the
-// prover verifies it for real on the live page.
+// How many elements of this tag contain the text anywhere in their subtree,
+// case-insensitively. This mirrors Playwright's :has-text(), which is a
+// substring match over the whole subtree, so the tree-side gate can never
+// claim more uniqueness than the emitted selector actually has.
+function subtreeText(node) {
+  let out = node.text || '';
+  for (const c of node.children) out += ' ' + subtreeText(c);
+  return out;
+}
+
 function countByChildText(tree, tag, text) {
+  const needle = text.toLowerCase();
   let count = 0;
   walk(tree, (node) => {
     if (node.tag !== tag) return;
-    if (node.children.some((c) => c.text === text)) count += 1;
+    if (subtreeText(node).toLowerCase().includes(needle)) count += 1;
   });
   return count;
 }
@@ -118,19 +126,18 @@ export function candidatesFor(tree, path) {
   const childTexts = node.children.map((c) => c.text).filter(Boolean);
   if (!node.text && scope && childTexts.length === 1) {
     const ct = childTexts[0];
-    if (ct.length <= 80 && !ct.includes('"')) {
+    if (ct.length <= 80 && !ct.includes('"') && !ct.includes('\\')) {
       raw.push({ selector: `#${scope.id} ${node.tag}:has-text("${ct}")`, kind: 'container-text' });
     }
   }
   const stable = node.classes.filter((c) => !HASHED_CLASS.test(c));
   for (const cls of stable) raw.push({ selector: `${node.tag}.${cls}`, kind: 'class' });
 
-  const scopeAncestor = [...ancestorsOf(tree, path)].reverse().find((a) => a.id);
-  if (scopeAncestor) {
-    raw.push({ selector: `#${scopeAncestor.id} ${node.tag}`, kind: 'scoped' });
-    for (const cls of stable) raw.push({ selector: `#${scopeAncestor.id} ${node.tag}.${cls}`, kind: 'scoped' });
+  if (scope) {
+    raw.push({ selector: `#${scope.id} ${node.tag}`, kind: 'scoped' });
+    for (const cls of stable) raw.push({ selector: `#${scope.id} ${node.tag}.${cls}`, kind: 'scoped' });
     raw.push({
-      selector: `#${scopeAncestor.id} ${node.tag}:nth-child(${node.path.at(-1) + 1})`,
+      selector: `#${scope.id} ${node.tag}:nth-child(${node.path.at(-1) + 1})`,
       kind: 'positional',
     });
   }

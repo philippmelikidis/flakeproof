@@ -37,7 +37,7 @@ async function candidateHits(page, selector) {
 export async function proveCandidates(url, anchorPath, candidates, { mutations = provingMutations } = {}) {
   const browser = await chromium.launch();
   try {
-    const results = candidates.map((c) => ({ ...c, uniqueInCurrent: false, survived: 0, applied: 0 }));
+    const results = candidates.map((c) => ({ ...c, uniqueInCurrent: false, survived: 0, applied: 0, outcomes: [] }));
 
     const withPage = async (fn) => {
       const page = await browser.newPage();
@@ -64,7 +64,9 @@ export async function proveCandidates(url, anchorPath, candidates, { mutations =
         if (!applied) return; // not applicable to this element; excluded from `applied`
         for (const r of results) {
           r.applied += 1;
-          if (await candidateHits(page, r.selector)) r.survived += 1;
+          const hit = await candidateHits(page, r.selector);
+          if (hit) r.survived += 1;
+          r.outcomes.push({ id: mutation.id, survived: hit });
         }
       });
     }

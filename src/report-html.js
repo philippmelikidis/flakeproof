@@ -19,8 +19,8 @@ function esc(s) {
 }
 
 // Describes an element in plain language instead of attribute soup.
-function describe(node) {
-  if (!node) return 'This element does not exist here.';
+function describe(node, missingText) {
+  if (!node) return missingText;
   const parts = [`a &lt;${esc(node.tag)}&gt; element`];
   if (node.id) parts.push(`with the id "${esc(node.id)}"`);
   if (node.classes?.length) parts.push(`with the classes ${node.classes.map((c) => `"${esc(c)}"`).join(', ')}`);
@@ -75,18 +75,32 @@ function section(title, body) {
   return `<h2>${esc(title)}</h2>${body}`;
 }
 
+// A baseline captured before this feature existed (or a snapshot taken
+// without html capture) has no `html` field. Diffing against a missing
+// snippet would mark the entire other side as "changed", which is not true;
+// say so instead, and only diff when both sides actually have a snippet.
+function snippet(node, other) {
+  if (!node.html) {
+    return '<p class="muted">No html snippet in this snapshot. Capture a fresh baseline to see the difference highlighted.</p>';
+  }
+  if (!other?.html) {
+    return `<pre>${esc(node.html)}</pre>`;
+  }
+  return `<pre>${markDiff(other.html, node.html)}</pre>`;
+}
+
 function beforeAfter(detail) {
   const before = detail?.anchorBefore;
   const after = detail?.anchorAfter;
-  const card = (label, node, other) => `
+  const card = (label, node, other, missingText) => `
     <div class="card">
       <div class="muted">${esc(label)}</div>
-      <p>${describe(node)}</p>
-      ${node ? `<pre>${other ? markDiff(other.html, node.html) : esc(node.html)}</pre>` : ''}
+      <p>${describe(node, missingText)}</p>
+      ${node ? snippet(node, other) : ''}
     </div>`;
   return `<div class="grid">
-    ${card('Before, in the green build', before, null)}
-    ${card('Now, in the current build', after, before)}
+    ${card('Before, in the green build', before, null, 'flakeproof did not look at any element here.')}
+    ${card('Now, in the current build', after, before, 'No element matched here in the current build.')}
   </div>`;
 }
 
@@ -101,16 +115,29 @@ function steps(detail) {
     .join('')}</ul></div>`;
 }
 
+// `survived === null` means the candidate was never proven, but that can
+// happen for two different reasons: no current url was given at all, or
+// proving was attempted and threw. Render the reason that actually
+// happened instead of always blaming the missing url.
+function proofText(c) {
+  if (c.survived === null) {
+    return c.unproven === 'failed' ? 'not proven, proving failed' : 'not proven, no current url was given';
+  }
+  const base = `survived ${c.survived}/${c.applied} mutations`;
+  if (c.outcomes?.length) {
+    const names = c.outcomes.map((o) => `${o.id} ${o.survived ? 'yes' : 'no'}`).join(', ');
+    return `${base} (${names})`;
+  }
+  return base;
+}
+
 function recommendations(list) {
   if (!list?.length) return '<p class="muted">No recommendations for this verdict.</p>';
   const shown = list.filter((c) => c.survived === null || c.survived > 0 || c.uniqueInCurrent);
   if (!shown.length) return '<p class="muted">No candidate survived proving, so there is no safe recommendation.</p>';
   const rows = shown
     .map((c, i) => {
-      const proof =
-        c.survived === null
-          ? 'not proven, no current url was given'
-          : `survived ${c.survived}/${c.applied} mutations`;
+      const proof = proofText(c);
       const unique = c.uniqueInCurrent === null ? 'unknown' : c.uniqueInCurrent ? 'yes' : 'no';
       return `<tr><td class="rank">${i + 1}</td><td><code>${esc(c.selector)}</code></td><td>${esc(c.kind)}</td><td>${esc(unique)}</td><td>${esc(proof)}</td></tr>`;
     })

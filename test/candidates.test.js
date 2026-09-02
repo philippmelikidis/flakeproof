@@ -152,6 +152,39 @@ test('container-text is dropped when the child text is not unique', () => {
   assert.ok(!cands.some((c) => c.kind === 'container-text'), 'ambiguous child text must not become a candidate');
 });
 
+test('container-text is refused when a sibling text merely contains the same words', () => {
+  const t = withPaths(
+    n('html', {}, [n('body', {}, [n('nav', { id: 'main-nav' }, [n('ul', {}, [
+      n('li', {}, [n('a', { text: 'Products' })]),
+      n('li', {}, [n('a', { text: 'Products Overview' })]),
+    ])])])]),
+  );
+  const cands = candidatesFor(t, [0, 0, 0, 0]);
+  assert.ok(!cands.some((c) => c.kind === 'container-text'), 'has-text is a substring match, so this is not unique');
+});
+
+test('container-text is refused when a sibling differs only in case', () => {
+  const t = withPaths(
+    n('html', {}, [n('body', {}, [n('nav', { id: 'main-nav' }, [n('ul', {}, [
+      n('li', {}, [n('a', { text: 'Products' })]),
+      n('li', {}, [n('a', { text: 'PRODUCTS' })]),
+    ])])])]),
+  );
+  const cands = candidatesFor(t, [0, 0, 0, 0]);
+  assert.ok(!cands.some((c) => c.kind === 'container-text'), 'has-text is case-insensitive, so this is not unique');
+});
+
+test('container-text is refused when the element is nested inside another of the same tag', () => {
+  const t = withPaths(
+    n('html', {}, [n('body', {}, [n('nav', { id: 'main-nav' }, [
+      n('li', {}, [n('li', {}, [n('a', { text: 'Products' })])]),
+    ])])]),
+  );
+  const inner = [0, 0, 0, 0];
+  const cands = candidatesFor(t, inner);
+  assert.ok(!cands.some((c) => c.kind === 'container-text'), 'an ancestor of the same tag also matches has-text');
+});
+
 test('container-text ranks above positional', () => {
   const t = withPaths(
     n('html', {}, [

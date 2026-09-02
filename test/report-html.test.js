@@ -82,6 +82,76 @@ test('an absolute href in the page data does not break self-containment', () => 
   assert.ok(!/\s(?:src|href)\s*=\s*["']?https?:/i.test(html), 'but never as a loaded resource');
 });
 
+test('a candidate that failed proving renders "proving failed", not "no current url"', () => {
+  const failedProof = {
+    ...fragile,
+    recommendation: [
+      { selector: '#cta', kind: 'id', uniqueInCurrent: null, survived: null, applied: null, unproven: 'failed' },
+    ],
+  };
+  const html = renderHtmlReport(failedProof);
+  assert.ok(html.includes('proving failed'), 'must name the real cause');
+  assert.ok(!html.includes('no current url was given'), 'must not claim the wrong cause');
+});
+
+test('a before snippet with no html field explains itself instead of marking everything as changed', () => {
+  const noHtml = {
+    ...fragile,
+    detail: {
+      ...fragile.detail,
+      anchorBefore: { tag: 'li', id: null, classes: ['css-1a2b3c'], text: '', attrs: {} },
+    },
+  };
+  const html = renderHtmlReport(noHtml);
+  assert.ok(html.includes('No html snippet in this snapshot'), 'must explain why there is nothing to diff');
+  assert.ok(!html.includes('<mark>'), 'without a baseline snippet there is nothing to mark as changed');
+});
+
+test('a no-anchor result never claims a nonexistent element does not exist', () => {
+  const noAnchor = {
+    verdict: 'no-anchor',
+    testId: null,
+    anchor: { selector: null, kind: 'assertion' },
+    rerun: null,
+    temporal: null,
+    classification: null,
+    recommendation: null,
+    notes: ['no locator found in the error; cannot triage without an anchor'],
+    detail: { anchorBefore: null, anchorAfter: null, steps: [] },
+  };
+  const html = renderHtmlReport(noAnchor);
+  assert.ok(!html.includes('does not exist'), 'flakeproof never looked, so it cannot claim nonexistence');
+  assert.ok(html.includes('did not look'), 'must say flakeproof did not look, not that the element is absent');
+});
+
+test('proof outcomes render as mutation names with yes or no', () => {
+  const withOutcomes = {
+    ...fragile,
+    recommendation: [
+      {
+        selector: '#main-nav li:has-text("Products")',
+        kind: 'container-text',
+        uniqueInCurrent: true,
+        survived: 4,
+        applied: 5,
+        outcomes: [
+          { id: 'wrap-element', survived: true },
+          { id: 'add-class', survived: true },
+          { id: 'rename-hashed-class', survived: true },
+          { id: 'add-framework-attr', survived: true },
+          { id: 'move-to-end', survived: false },
+        ],
+      },
+    ],
+  };
+  const html = renderHtmlReport(withOutcomes);
+  assert.ok(html.includes('wrap-element yes'));
+  assert.ok(html.includes('add-class yes'));
+  assert.ok(html.includes('rename-hashed-class yes'));
+  assert.ok(html.includes('add-framework-attr yes'));
+  assert.ok(html.includes('move-to-end no'));
+});
+
 test('a verdict without detail still renders every mandatory section', () => {
   const bare = {
     verdict: 'no-anchor',
