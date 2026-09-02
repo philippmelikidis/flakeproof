@@ -11,6 +11,8 @@ import { renderHtmlReport } from '../src/report-html.js';
 import { loadConfig, DEFAULT_BASELINE } from '../src/config.js';
 import { runSuite } from '../src/runner/index.js';
 import { renderSummaryMarkdown, renderSummaryHtml } from '../src/report-summary.js';
+import { measureBlindspots } from '../src/blindspots/measure.js';
+import { renderBlindspotsMarkdown, renderBlindspotsHtml } from '../src/blindspots/report.js';
 
 const USAGE = `usage:
   flakeproof snapshot <url> [--anchor <selector>] --out <file.json>
@@ -19,7 +21,10 @@ const USAGE = `usage:
                     [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md|file.html>] [--open]
   flakeproof baseline <url> [--out <file.json>]
   flakeproof run [--cmd <command>] [--url <url>] [--results <file>] [--reader playwright|robot]
-                 [--baseline <file.json>] [--out <file.md|file.html>]`;
+                 [--baseline <file.json>] [--out <file.md|file.html>]
+  flakeproof blindspots [--cmd <command>] [--results <file>] [--reader playwright|robot]
+                        --selectors <sel1,sel2,...> [--mutations <id1,id2,...>]
+                        [--json] [--out <file.md|file.html>]`;
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
@@ -68,6 +73,50 @@ async function main() {
       console.log(output);
     }
     if (runResult.blind) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'blindspots') {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        cmd: { type: 'string' }, results: { type: 'string' }, reader: { type: 'string' },
+        selectors: { type: 'string' }, mutations: { type: 'string' },
+        json: { type: 'boolean', default: false }, out: { type: 'string' },
+      },
+    });
+    const cfg = await loadConfig();
+    const bsCfg = cfg.blindspots ?? {};
+    const cmd = values.cmd ?? cfg.cmd;
+    const results = values.results ?? cfg.results ?? 'results.json';
+    const reader = values.reader ?? cfg.reader ?? 'playwright';
+    const selectors = (values.selectors ?? (Array.isArray(bsCfg.selectors) ? bsCfg.selectors.join(',') : bsCfg.selectors))
+      ?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const mutationsRaw = values.mutations ?? (Array.isArray(bsCfg.mutations) ? bsCfg.mutations.join(',') : bsCfg.mutations);
+    const mutations = mutationsRaw ? mutationsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+    if (!cmd) throw new Error('blindspots needs a test command, from --cmd or flakeproof.config.json');
+    if (!['playwright', 'robot'].includes(reader)) throw new Error(`unknown reader "${reader}", expected playwright or robot`);
+    if (!selectors || selectors.length === 0) {
+      throw new Error('blindspots needs at least one selector, from --selectors or flakeproof.config.json (blindspots.selectors)');
+    }
+
+    const result = await measureBlindspots({ cmd, reader, resultsPath: resolve(results), selectors, mutations });
+    const wantsHtml = !!values.out && /\.html?$/i.test(values.out);
+    const output = values.json
+      ? JSON.stringify(result, null, 2)
+      : wantsHtml
+        ? renderBlindspotsHtml(result)
+        : renderBlindspotsMarkdown(result);
+    if (values.out) {
+      await mkdir(dirname(resolve(values.out)), { recursive: true });
+      await writeFile(values.out, output, 'utf8');
+      console.log(`blindspots report written to ${values.out}`);
+    } else {
+      console.log(output);
+    }
+    if (result.abstained) process.exitCode = 1;
     return;
   }
 

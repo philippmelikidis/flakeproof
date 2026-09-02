@@ -168,3 +168,79 @@ test('a missing baseline is named with the command that fixes it', async () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
+
+// A fake, wrapper-free suite: acknowledges nothing, always green. Enough to
+// exercise the CLI's wiring (flags, config fallback, --out formats, exit
+// code) without a real browser - the honesty behavior itself is proven
+// against a real Playwright run in test/blindspots-e2e.test.js.
+async function writeFakeGreenSuite(dir) {
+  const script = join(dir, 'suite.cjs');
+  await writeFile(script, 'require("fs").writeFileSync(process.env.FP_RESULTS_PATH, JSON.stringify({ suites: [] })); process.exit(0);');
+  return script;
+}
+
+test('blindspots subcommand refuses to score a suite that never installed the wrapper', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+    const script = await writeFakeGreenSuite(dir);
+    const resultsPath = join(dir, 'results.json');
+    // An abstained measurement exits 1 (see bin/flakeproof.js), so execFile
+    // rejects even though a report was printed; the report is on the
+    // rejection's own stdout, same pattern as the missing-baseline test.
+    const err = await run(
+      'node',
+      [
+        join(process.cwd(), 'bin/flakeproof.js'), 'blindspots',
+        '--cmd', `node ${script}`,
+        '--results', 'results.json',
+        '--selectors', '#cta',
+        '--mutations', 'change-text',
+      ],
+      { cwd: dir, env: { ...process.env, FP_RESULTS_PATH: resultsPath } },
+    ).then(
+      () => { throw new Error('expected the CLI to exit 1 on an abstained measurement'); },
+      (e) => e,
+    );
+    assert.ok(err.stdout.includes('No score') || err.stdout.includes('cannot compute a score'));
+    assert.ok(err.stdout.includes('withTemporal'));
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('blindspots subcommand reads selectors from flakeproof.config.json and writes an html report', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+    const script = await writeFakeGreenSuite(dir);
+    const resultsPath = join(dir, 'results.json');
+    await writeFile(
+      join(dir, 'flakeproof.config.json'),
+      JSON.stringify({ cmd: `node ${script}`, results: 'results.json', blindspots: { selectors: ['#cta'], mutations: ['change-text'] } }),
+    );
+    const outFile = join(dir, 'blindspots.html');
+    await run('node', [join(process.cwd(), 'bin/flakeproof.js'), 'blindspots', '--out', outFile], {
+      cwd: dir,
+      env: { ...process.env, FP_RESULTS_PATH: resultsPath },
+    }).catch(() => {}); // abstained measurements exit 1; the file is still written
+    const html = await readFile(outFile, 'utf8');
+    assert.ok(html.startsWith('<!doctype html>'));
+    assert.ok(html.includes('No score'), 'the fake suite never installs the wrapper, so this must abstain');
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('blindspots subcommand requires at least one selector', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+    await assert.rejects(
+      () => run('node', [join(process.cwd(), 'bin/flakeproof.js'), 'blindspots', '--cmd', 'node -e "process.exit(0)"'], { cwd: dir }),
+      (err) => /at least one selector/.test(err.stderr ?? String(err)),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
