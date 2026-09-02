@@ -3,11 +3,11 @@
 // than thrown; only the caller decides what a failure means.
 import { spawn } from 'node:child_process';
 
-export function runTests(command, { cwd = process.cwd() } = {}) {
+export function runTests(command, { cwd = process.cwd(), env = {} } = {}) {
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
-    const child = spawn(command, { shell: true, cwd });
+    const child = spawn(command, { shell: true, cwd, env: { ...process.env, ...env } });
     child.stdout?.on('data', (d) => { stdout += d.toString(); });
     child.stderr?.on('data', (d) => { stderr += d.toString(); });
     child.on('error', (err) => resolve({ exitCode: -1, stdout, stderr: stderr + err.message }));

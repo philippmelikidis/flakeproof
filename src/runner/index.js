@@ -6,7 +6,7 @@ import { failedTestsFromPlaywrightJson } from './read-playwright.js';
 import { failedTestsFromOutputXml } from '../adapters/robot.js';
 import { triage } from '../triage/engine.js';
 
-const READERS = {
+export const READERS = {
   playwright: failedTestsFromPlaywrightJson,
   robot: failedTestsFromOutputXml,
 };
