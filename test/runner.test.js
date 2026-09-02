@@ -10,7 +10,29 @@ import { runSuite } from '../src/runner/index.js';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
-test('a green run reports no failures and does not triage', async () => {
+test('a green run with readable empty results reports no failures and no note', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-run-'));
+    const resultsPath = join(dir, 'results.json');
+    await writeFile(resultsPath, JSON.stringify({ suites: [] }));
+    const result = await runSuite({
+      cmd: 'node -e "process.exit(0)"',
+      resultsPath,
+      reader: 'playwright',
+      cwd: dir,
+    });
+    assert.equal(result.ran, true);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.failures, 0);
+    assert.equal(result.results.length, 0);
+    assert.deepEqual(result.notes, [], 'a genuinely green run needs no explanation');
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a green run whose result file is missing still says so', async () => {
   let dir = null;
   try {
     dir = await mkdtemp(join(tmpdir(), 'fp-run-'));
@@ -20,10 +42,8 @@ test('a green run reports no failures and does not triage', async () => {
       reader: 'playwright',
       cwd: dir,
     });
-    assert.equal(result.ran, true);
-    assert.equal(result.exitCode, 0);
     assert.equal(result.failures, 0);
-    assert.equal(result.results.length, 0);
+    assert.ok(result.notes.some((n) => /could not read/i.test(n)), 'a missing file is never silently green');
   } finally {
     if (dir) await rm(dir, { recursive: true, force: true });
   }
