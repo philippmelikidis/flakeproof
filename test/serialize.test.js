@@ -8,13 +8,15 @@ import { startFixtureServer } from './helpers/serve.js';
 import { serializeDom } from '../src/probe/serialize.js';
 import { nodeAt, findNode } from '../src/triage/tree.js';
 
-// Serves an arbitrary html string from a fresh temp directory, for cases
-// that need markup the shared fixture page does not contain.
-async function serveHtml(html) {
-  const dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+// Serves an arbitrary html string from an already-created temp directory,
+// for cases that need markup the shared fixture page does not contain.
+// Callers must create `dir` themselves (and assign it to their own
+// try/finally-scoped variable) before calling this, so that if starting the
+// server throws, the caller's cleanup guard still knows about the directory
+// and does not leak it.
+async function serveHtml(dir, html) {
   await writeFile(join(dir, 'index.html'), html);
-  const server = await startFixtureServer({ root: dir });
-  return { server, dir };
+  return startFixtureServer({ root: dir });
 }
 
 test('serializeDom captures the fixture header', async () => {
@@ -105,9 +107,11 @@ describe('accessibleName', () => {
     let browser = null;
     let dir = null;
     try {
-      ({ server, dir } = await serveHtml(
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(
+        dir,
         '<!doctype html><html><body><a id="contact" href="/contact/">Contact <b>us</b></a></body></html>',
-      ));
+      );
       browser = await chromium.launch();
       const page = await browser.newPage();
       await page.goto(server.url);
@@ -126,9 +130,11 @@ describe('accessibleName', () => {
     let browser = null;
     let dir = null;
     try {
-      ({ server, dir } = await serveHtml(
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(
+        dir,
         '<!doctype html><html><body><a id="contact" aria-label="Reach out to us" href="/contact/">Contact <b>us</b></a></body></html>',
-      ));
+      );
       browser = await chromium.launch();
       const page = await browser.newPage();
       await page.goto(server.url);
@@ -147,9 +153,11 @@ describe('accessibleName', () => {
     let browser = null;
     let dir = null;
     try {
-      ({ server, dir } = await serveHtml(
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(
+        dir,
         '<!doctype html><html><body><img id="logo" src="logo.svg" alt="Acme logo"></body></html>',
-      ));
+      );
       browser = await chromium.launch();
       const page = await browser.newPage();
       await page.goto(server.url);
@@ -170,12 +178,14 @@ describe('IMPLICIT_ROLES for header and footer', () => {
     let browser = null;
     let dir = null;
     try {
-      ({ server, dir } = await serveHtml(
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(
+        dir,
         '<!doctype html><html><body>' +
           '<header id="top-header">Site</header>' +
           '<article><header id="article-header">Post title</header></article>' +
           '</body></html>',
-      ));
+      );
       browser = await chromium.launch();
       const page = await browser.newPage();
       await page.goto(server.url);
@@ -196,12 +206,14 @@ describe('IMPLICIT_ROLES for header and footer', () => {
     let browser = null;
     let dir = null;
     try {
-      ({ server, dir } = await serveHtml(
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(
+        dir,
         '<!doctype html><html><body>' +
           '<section><footer id="section-footer">Section end</footer></section>' +
           '<footer id="top-footer">Site end</footer>' +
           '</body></html>',
-      ));
+      );
       browser = await chromium.launch();
       const page = await browser.newPage();
       await page.goto(server.url);

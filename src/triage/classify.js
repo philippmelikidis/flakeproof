@@ -26,18 +26,29 @@ export function classifyDelta(baseline, current, anchorSelector) {
   const match = findBestMatch(current.tree, target);
   if (!match) {
     // No candidate scored high enough to count as a confident match. If the
-    // target has a strong identity of its own (id, own text, accessible
-    // name, or href), a failed match is solid evidence of removal: were the
-    // element still there with those markers intact, it would have scored
-    // well above threshold. But an element whose only identity is tag +
-    // classes (no id/text/name/href of its own, e.g. a bare <li> wrapping a
-    // link) can *never* clear the confidence threshold on class overlap
-    // alone (see src/triage/match.js) - for those, a purely cosmetic change
-    // (an added class dilutes overlap, a move changes sibling position)
-    // produces the exact same "no match" signal as a real removal. Only
-    // hedge to 'unclear' for that weak-identity case, and only when other
-    // elements of the same tag still exist to plausibly be it.
-    const weakIdentity = !target.id && !target.text && !target.name && !target.attrs.href;
+    // target has a strong intrinsic identity of its own (id, own text, href,
+    // or an explicit aria-label), a failed match is solid evidence of
+    // removal: were the element still there with those markers intact, it
+    // would have scored well above threshold. But an element whose only
+    // identity is tag + classes (no id/text/href/aria-label of its own, e.g.
+    // a bare <li> wrapping a link) can *never* clear the confidence
+    // threshold on class overlap alone (see src/triage/match.js) - for
+    // those, a purely cosmetic change (an added class dilutes overlap, a
+    // move changes sibling position) produces the exact same "no match"
+    // signal as a real removal. Only hedge to 'unclear' for that
+    // weak-identity case, and only when other elements of the same tag
+    // still exist to plausibly be it.
+    // Intrinsic markers only: id, the element's OWN text, href, and an
+    // explicit aria-label. `name` is no longer intrinsic to the element - it
+    // is the accessible name computed from the whole subtree (see
+    // src/probe/serialize.js), so it changes whenever any descendant's text
+    // changes even though the element itself is untouched and still
+    // present. Using it here would report a merely-reworded descendant as
+    // "no longer exists in current build", which is false: the element is
+    // still there, just no longer confidently re-identified by this weaker
+    // signal set.
+    const weakIdentity =
+      !target.id && !target.text && !target.attrs.href && !target.attrs['aria-label'];
     const sameTagSurvives = weakIdentity && findNode(current.tree, (n) => n.tag === target.tag) !== null;
     if (sameTagSurvives) {
       return {

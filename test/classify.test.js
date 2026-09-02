@@ -45,6 +45,45 @@ test('element removed -> semantic', () => {
   assert.equal(r.verdict, 'semantic');
 });
 
+test('an icon-only li with no intrinsic markers hedges to unclear when gone, rather than claiming removal', () => {
+  // The weakIdentity -> unclear hedge (sameTagSurvives branch) had its only
+  // integration coverage lost when test/e2e-triage.test.js was updated. An
+  // icon-only <li> - no text, no id, no href, no aria-label - has no
+  // intrinsic identity of its own to distinguish "this exact element was
+  // removed" from "the matcher simply could not re-identify it". When it
+  // disappears from the current build but other <li> elements of the same
+  // tag remain, the honest answer is 'unclear', not a confident claim of
+  // removal.
+  const before = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', {}, [
+          n('li', { classes: ['icon-li'] }), // the anchor: no text/id/href/aria-label
+          n('li', { classes: ['nav-item'] }, [n('a', { text: 'Solutions', attrs: { href: '/solutions/' } })]),
+        ]),
+      ]),
+    ]),
+    [0, 0, 0], // body > ul > li(icon-only)
+  );
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', {}, [
+          // The icon-only li is gone; the other li survives.
+          n('li', { classes: ['nav-item'] }, [n('a', { text: 'Solutions', attrs: { href: '/solutions/' } })]),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'li.icon-li');
+  assert.equal(r.verdict, 'unclear');
+  assert.ok(
+    !r.reasons.some((msg) => msg.includes('no longer exists in current build')),
+    `must hedge rather than claim removal, got: ${JSON.stringify(r.reasons)}`,
+  );
+});
+
 test('hashed class renamed, selector relied on it -> cosmetic', () => {
   const before = snap(baselineTree(), [0, 0, 0]);
   const after = snap(
@@ -206,6 +245,59 @@ test('weak-identity element (no id/text/href of its own) is now re-identified vi
   const r = classifyDelta(before, after, 'li.css-1a2b3c');
   assert.equal(r.verdict, 'unclear');
   assert.ok(r.match, 'locality must now enable matching of bare li');
+});
+
+test('a bare li whose child text was merely reworded is not falsely reported as removed', () => {
+  // Reproduces a false positive: the accessible `name` on a node is now
+  // derived from the whole subtree (see src/probe/serialize.js), so it is
+  // NOT an intrinsic marker of the element itself - it changes whenever any
+  // descendant's text changes. A bare <li> (no id, no own text, no href, no
+  // aria-label) whose only identity used to be tag + classes now also has a
+  // `name` ("Solutions") purely because its child <a> has that text.
+  //
+  // Between builds the child link is reworded ("Solutions" -> "Our
+  // Solutions") and the build tool rotates the hashed class as it always
+  // does. Both push the match score for this <li> below the confidence
+  // threshold (subtree text changed -> children signature no longer
+  // overlaps; hashed class rotated -> class overlap drops to one shared
+  // class out of three), so findBestMatch legitimately fails to match it
+  // confidently. The element is still right there in the current build,
+  // just no longer confidently re-identified.
+  //
+  // If weakIdentity used `!target.name` (the old, buggy check), the now
+  // non-empty subtree-derived name would make weakIdentity false, skip the
+  // 'unclear' hedge, and directly report the element as removed - which is
+  // false. Using only intrinsic markers must hedge to 'unclear' instead.
+  const before = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'], name: 'Solutions' }, [
+            n('a', { text: 'Solutions', attrs: { href: '/solutions/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    [0, 0, 0], // body > ul > li
+  );
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-q1w2e3', 'nav-item'], name: 'Our Solutions' }, [
+            n('a', { text: 'Our Solutions', attrs: { href: '/solutions/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'li.css-1a2b3c');
+  assert.equal(r.verdict, 'unclear');
+  assert.ok(
+    !r.reasons.some((msg) => msg.includes('no longer exists in current build')),
+    `must not falsely claim removal for an element that is still present, got: ${JSON.stringify(r.reasons)}`,
+  );
 });
 
 test('sibling slide-in with equal text next to cosmetic evidence -> unclear', () => {

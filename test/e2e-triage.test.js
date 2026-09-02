@@ -67,17 +67,19 @@ test('changed text against the semantic build is a real change', async () => {
   }
 });
 
-test('a removed element with a subtree-derived name is a confident real change, not a hedge', async () => {
-  // Before the accessible-name fix, a bare <li> wrapping a link had no own
-  // text and no explicit aria-label, so its computed "name" was blank and
-  // it counted as a "weak identity" element: with no id/text/name/href of
-  // its own, the classifier could not tell a rename from a removal and
-  // hedged to 'unclear'. Now that the name is the whole subtree's text
-  // ("Solutions"), the li has a real identity again. Page v3 removes this
-  // li outright (Products/Company/Careers remain, Solutions does not), so
-  // there is no other element anywhere with that name for it to have been
-  // renamed into; the classifier can now say 'real-change' honestly instead
-  // of hedging.
+test('removed weak-identity element yields an honest unclear', async () => {
+  // A bare <li> wrapping a link has no own text, no id, no href and no
+  // explicit aria-label of its own - the only markers the classifier treats
+  // as intrinsic identity (see the weakIdentity check in
+  // src/triage/classify.js). Its computed accessible `name` is derived from
+  // the whole subtree ("Solutions", from the child <a>), but that is not an
+  // intrinsic marker of the li itself: it changes whenever the child's text
+  // changes, so it cannot be used to tell "this exact element was removed"
+  // from "the matcher could not confidently re-identify it". Page v3 removes
+  // this li outright (Products/Company/Careers remain, Solutions does not),
+  // but since other <li> elements of the same tag survive, the classifier
+  // cannot honestly rule out a rename/move and must hedge to 'unclear'
+  // rather than confidently claim removal.
   let dir = null;
   let v3 = null;
   try {
@@ -89,7 +91,7 @@ test('a removed element with a subtree-derived name is a confident real change, 
       baselinePath,
       currentUrl: v3.url,
     });
-    assert.equal(result.verdict, 'real-change');
+    assert.equal(result.verdict, 'unclear');
   } finally {
     await v3?.close();
     if (dir) await rm(dir, { recursive: true, force: true });

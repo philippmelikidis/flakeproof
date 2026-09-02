@@ -27,6 +27,9 @@ const VERDICT_BY_CLASSIFICATION = { cosmetic: 'fragile', semantic: 'real-change'
 // explicitly rather than assumed. Never silently substitute the baseline
 // tree here: a candidate built from an element that may no longer exist in
 // the current build is exactly the staleness this function exists to avoid.
+// Internal: exported only so a unit test can call it directly. It is
+// reachable as public API through the package's "exports" map (this module
+// is the "." export), so treat any signature change as a breaking change.
 export function fragileCandidateSource(classification, current) {
   if (!classification?.match?.path) return null;
   return { tree: current.tree, path: classification.match.path };

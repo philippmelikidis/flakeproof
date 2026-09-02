@@ -40,15 +40,41 @@ export function serializeDom(anchorSelector) {
   // "Contact"). aria-labelledby is intentionally not handled here: it names
   // an element from a DIFFERENT element's content, which this per-element
   // function cannot resolve. Callers that need to know accessible name
-  // cannot suppress that case by checking for the attribute.
+  // cannot suppress that case by checking for the attribute. Unlike the real
+  // accname algorithm, there is no `title` attribute fallback: when the
+  // subtree has no text and no aria-label, this returns '' where Playwright
+  // could still fall back to `title`. That is a narrower name, not a wrong
+  // one, so callers that require a name simply get none rather than a value
+  // that might disagree with the prover.
   function accessibleName(el) {
     const ariaLabel = (el.getAttribute('aria-label') || '').trim();
-    if (ariaLabel) return ariaLabel.slice(0, MAX_TEXT);
+    if (ariaLabel) return { name: ariaLabel.slice(0, MAX_TEXT), exact: true };
     const tag = el.tagName.toLowerCase();
     if (tag === 'img' || tag === 'area') {
-      return (el.getAttribute('alt') || '').trim().slice(0, MAX_TEXT);
+      return { name: (el.getAttribute('alt') || '').trim().slice(0, MAX_TEXT), exact: true };
     }
-    return (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, MAX_TEXT);
+    const name = (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, MAX_TEXT);
+    return { name, exact: subtreeNameIsExact(el) };
+  }
+
+  // Whether accessibleName's subtree-text branch actually agrees with the
+  // real accessible name algorithm for this element. It disagrees when a
+  // descendant is hidden (aria-hidden="true", the hidden attribute, or a
+  // computed display:none/visibility:hidden) - excluded from the real name
+  // but still counted by textContent - or when a descendant img/area has
+  // non-empty alt text - contributed to the real name but invisible to
+  // textContent entirely. Either case makes textContent an unreliable
+  // stand-in for the accessible name, so callers must not treat the
+  // resulting `name` as trustworthy.
+  function subtreeNameIsExact(el) {
+    for (const child of el.querySelectorAll('*')) {
+      if (child.hidden || child.getAttribute('aria-hidden') === 'true') return false;
+      const style = getComputedStyle(child);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      const childTag = child.tagName.toLowerCase();
+      if ((childTag === 'img' || childTag === 'area') && (child.getAttribute('alt') || '').trim()) return false;
+    }
+    return true;
   }
 
   function serialize(el, path) {
@@ -63,13 +89,15 @@ export function serializeDom(anchorSelector) {
       children.push(serialize(c, path.concat(i)));
       i += 1;
     }
+    const acc = accessibleName(el);
     return {
       tag: el.tagName.toLowerCase(),
       id: el.id || null,
       classes: [...el.classList].sort(),
       attrs,
       text: ownText(el),
-      name: accessibleName(el),
+      name: acc.name,
+      nameFromSubtreeIsExact: acc.exact,
       role: el.getAttribute('role') || implicitRole(el) || '',
       html: el.outerHTML.length > MAX_HTML ? el.outerHTML.slice(0, MAX_HTML) + ' ...' : el.outerHTML,
       path,

@@ -4,6 +4,15 @@
 import { nodeAt, walk, ancestorsOf } from './tree.js';
 import { HASHED_CLASS } from './classify.js';
 
+// The accessible name is derived from subtree content only for these roles.
+// For every other role a name computed from the subtree is a fabrication and
+// the emitted selector would match nothing, so no candidate is offered.
+const NAME_FROM_CONTENT_ROLES = new Set([
+  'link', 'button', 'heading', 'cell', 'checkbox', 'menuitem', 'option', 'radio',
+  'row', 'switch', 'tab', 'treeitem', 'tooltip', 'columnheader', 'rowheader',
+  'gridcell', 'menuitemcheckbox', 'menuitemradio',
+]);
+
 function parseCompound(part) {
   const c = { tag: null, id: null, classes: [], attr: null, nth: null };
   let rest = part;
@@ -110,17 +119,33 @@ export function candidatesFor(tree, path) {
   if (ownText && ownText.length <= 80 && !ownText.includes('"')) {
     raw.push({ selector: `text="${ownText}"`, kind: 'text' });
   }
-  // The serializer now computes the accessible name from the whole subtree
+  // The serializer computes the accessible name from the whole subtree
   // (aria-label, or img/area alt, or collapsed subtree text), which is what
-  // Playwright computes too, so the tree-side name already agrees with the
-  // prover for nested elements like `<a>Contact <b>us</b></a>`. One case the
-  // serializer cannot resolve per-element: aria-labelledby names an element
-  // from a DIFFERENT element's content, so whatever ended up in `name` is
-  // not necessarily the real accessible name. Withhold the role candidate
-  // for that case instead of guessing.
-  const roleName = node.name || node.text;
-  const nameUnknown = Boolean(node.attrs['aria-labelledby']);
-  if (node.role && roleName && !nameUnknown && roleName.length <= 80 && !roleName.includes('"')) {
+  // Playwright computes too for name-from-content roles, so the tree-side
+  // name agrees with the prover for nested elements like
+  // `<a>Contact <b>us</b></a>`. For every other role the accessible name is
+  // empty unless authored (e.g. via aria-label), so a name computed from the
+  // subtree is a fabrication: `role=list[name="..."]` would match nothing.
+  // Withhold the role candidate unless the role is one where the accname
+  // spec actually names it from content.
+  const roleName = node.name;
+  // aria-labelledby names an element from a DIFFERENT element's content,
+  // which the serializer cannot resolve per-element, so whatever ended up in
+  // `name` is not necessarily the real accessible name. The serializer also
+  // flags when its own subtree-text computation could disagree with the
+  // real accname algorithm (a hidden descendant, or an img/area descendant
+  // whose alt text would contribute to the real name but not to ours).
+  // Either case means the tree-side name cannot be trusted, so withhold
+  // the candidate instead of guessing.
+  const nameUnknown = Boolean(node.attrs['aria-labelledby']) || node.nameFromSubtreeIsExact === false;
+  if (
+    node.role &&
+    NAME_FROM_CONTENT_ROLES.has(node.role) &&
+    roleName &&
+    !nameUnknown &&
+    roleName.length <= 80 &&
+    !roleName.includes('"')
+  ) {
     raw.push({ selector: `role=${node.role}[name="${roleName}"]`, kind: 'role' });
   }
   // A container bound by its child's text. For an anonymous element (no id,
@@ -151,7 +176,7 @@ export function candidatesFor(tree, path) {
     if (seen.has(cand.selector)) return false;
     seen.add(cand.selector);
     if (cand.kind === 'text') return countByText(tree, node.text) === 1;
-    if (cand.kind === 'role') return countByRoleName(tree, node.role, node.name || node.text) === 1;
+    if (cand.kind === 'role') return countByRoleName(tree, node.role, roleName) === 1;
     if (cand.kind === 'container-text') {
       const ct = childTexts[0];
       return countByChildText(tree, node.tag, ct) === 1;

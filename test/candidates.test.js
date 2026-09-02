@@ -1,6 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { chromium } from 'playwright';
 import { queryTree, candidatesFor } from '../src/triage/candidates.js';
+import { serializeDom } from '../src/probe/serialize.js';
+import { findNode } from '../src/triage/tree.js';
+import { startFixtureServer } from './helpers/serve.js';
+
+// Serves an arbitrary html string from an already-created temp directory.
+// Callers must create `dir` themselves before calling this, so that if
+// starting the server throws, the caller's cleanup guard still knows about
+// the directory and does not leak it.
+async function serveHtml(dir, html) {
+  await writeFile(join(dir, 'index.html'), html);
+  return startFixtureServer({ root: dir });
+}
 
 function n(tag, props = {}, children = []) {
   return {
@@ -25,7 +41,7 @@ const tree = () =>
               n('li', { classes: ['css-9z8y7x', 'nav-item'] }, [n('a', { text: 'Solutions', attrs: { href: '/solutions/' } })]),
             ]),
           ]),
-          n('a', { id: 'cta', classes: ['btn'], text: 'Contact us', role: 'link', attrs: { href: '/contact/', 'data-testid': 'cta-button' } }),
+          n('a', { id: 'cta', classes: ['btn'], text: 'Contact us', name: 'Contact us', role: 'link', attrs: { href: '/contact/', 'data-testid': 'cta-button' } }),
         ]),
       ]),
     ]),
@@ -101,7 +117,7 @@ test('text containing a double quote is not offered (fail closed)', () => {
   assert.ok(!cands.some((c) => c.kind === 'text' || c.kind === 'role'));
 });
 
-test('a nested <a>Contact <b>us</b></a> now produces a role candidate named from its whole subtree', () => {
+test('a nested <a>Contact <b>us</b></a> now produces a role candidate named from its whole subtree', async () => {
   // Before the accessible-name fix, an element with children but no
   // explicit aria-label had its role candidate withheld entirely, because
   // the tree-side "name" was only the element's own text ('Contact') and
@@ -109,20 +125,42 @@ test('a nested <a>Contact <b>us</b></a> now produces a role candidate named from
   // subtree ('Contact us'). The serializer now computes exactly that
   // subtree-derived name, so the tree-side value already agrees with
   // Playwright and the role candidate can be offered.
-  const t = withPaths(
-    n('html', {}, [
-      n('body', {}, [
-        n('a', { text: 'Contact', name: 'Contact us', role: 'link', attrs: { href: '/contact/' } }, [
-          n('b', { text: 'us' }),
-        ]),
-      ]),
-    ]),
-  );
-  const cands = candidatesFor(t, [0, 0]);
-  assert.ok(
-    cands.some((c) => c.kind === 'role' && c.selector === 'role=link[name="Contact us"]'),
-    'role candidate must use the serializer-computed subtree name, matching what Playwright computes',
-  );
+  //
+  // Goes through the real serializer on real markup rather than hand-feeding
+  // `name: 'Contact us'` into a synthetic node: a hand-fed name makes the OLD
+  // gate (`node.name || node.children.length === 0`) pass too, since the OR's
+  // first branch is already satisfied by the hand-fed value regardless of
+  // whether the serializer can actually compute a subtree name. That pinned
+  // nothing about the actual feature. Driving markup through serializeDom
+  // pins the serializer's subtree-name computation as well as the gate.
+  let server = null;
+  let browser = null;
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-candidates-'));
+    server = await serveHtml(
+      dir,
+      '<!doctype html><html><body><a id="contact" href="/contact/">Contact <b>us</b></a></body></html>',
+    );
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(server.url);
+    const snap = await page.evaluate(serializeDom, null);
+    const link = findNode(snap.tree, (nd) => nd.id === 'contact');
+    const cands = candidatesFor(snap.tree, link.path);
+    assert.ok(
+      cands.some((c) => c.kind === 'role' && c.selector === 'role=link[name="Contact us"]'),
+      'role candidate must use the serializer-computed subtree name, matching what Playwright computes',
+    );
+    assert.ok(
+      cands.some((c) => c.kind === 'text'),
+      'own-text candidate is unaffected and stays since the text is unique',
+    );
+  } finally {
+    await browser?.close();
+    await server?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('role candidate is withheld when the element carries aria-labelledby', () => {
