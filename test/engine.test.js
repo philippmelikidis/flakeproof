@@ -206,7 +206,7 @@ test('temporal probe turns a green-on-rerun failure into a reproducible finding'
       script,
       'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
         'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
-        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:true,count:1}));' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:true,count:1,ruleLive:true}));' +
         'process.exit(ms>=500?1:0);',
     );
     const result = await triage({
@@ -280,6 +280,121 @@ test('an old-format ack keeps the weakened wording rather than claiming a proven
     assert.equal(result.temporal.matched, null);
     assert.ok(
       result.notes.some((note) => note.includes('unverified') && note.includes('unlikely but not excluded')),
+      JSON.stringify(result.notes),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Item D: a nonzero count alone cannot carry any confident claim, positive
+// or negative. `querySelectorAll` can match real elements even when the
+// browser silently discarded the css rule built from that same selector
+// string, so a wrapper acknowledging a match but never confirming the rule
+// was live must not be phrased as either "likely a missing wait" or "timing
+// is unlikely to be the cause" - both would overstate what was observed.
+test('a matched count without a confirmed-live rule is named as unverified, not a reproduction or a clearance', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'discarded-rule.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:true,count:3,ruleLive:false}));' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, false, 'an unconfirmed rule must never back a reproduction claim');
+    assert.equal(result.temporal.matched, 3, 'the observed count is still surfaced');
+    assert.equal(result.temporal.ruleLive, false);
+    assert.ok(!result.notes.some((note) => note.includes('likely a missing wait')));
+    assert.ok(!result.notes.some((note) => note.includes('timing is unlikely to be the cause')));
+    assert.ok(
+      result.notes.some((note) => note.includes('never confirmed live') && note.includes('not evidence against a timing cause')),
+      JSON.stringify(result.notes),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Item C: the strong "matched N element(s) on every round" wording is only
+// used when every round tried actually confirmed a nonzero, known match.
+// Here every one of the (default) delay rounds reports the same confirmed
+// count, so the strong wording is earned.
+test('a confirmed nonzero match on every round earns the strong "every round" wording', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'every-round-confirmed.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:true,count:2,ruleLive:true}));' +
+        'process.exit(0);', // never fails: the loop runs to completion across every delay
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, false);
+    assert.ok(
+      result.temporal.tried.every((t) => t.matched === 2),
+      `expected every round to confirm the same count, got: ${JSON.stringify(result.temporal.tried)}`,
+    );
+    assert.ok(
+      result.notes.some((note) => note.includes('matched 2 element(s) on every round') && note.includes('timing is unlikely to be the cause')),
+      JSON.stringify(result.notes),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Item C, the reproduced disagreement scenario: rounds with counts [3, 0]
+// (and further rounds at 0) must NOT earn the "on every round" wording -
+// that would overstate what was actually observed. The note must hedge and
+// show the reader the actual per-round disagreement instead.
+test('disagreeing per-round counts are hedged, never rounded up to "every round"', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'disagreeing-rounds.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'const count = ms===250 ? 3 : 0;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:true,count,ruleLive:true}));' +
+        'process.exit(0);', // never fails: the loop runs to completion across every delay
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, false);
+    assert.equal(result.temporal.matched, 3, 'the strongest count observed is still the headline number');
+    assert.ok(
+      !result.notes.some((note) => note.includes('on every round')),
+      `must not claim "every round" when rounds disagreed, got: ${JSON.stringify(result.notes)}`,
+    );
+    assert.ok(
+      result.notes.some((note) => note.includes('varied across rounds') && note.includes('not confidently ruled out')),
       JSON.stringify(result.notes),
     );
   } finally {

@@ -189,14 +189,30 @@ export async function triage(opts) {
             }
             temporal = await temporalProbe(opts.rerunCommand, target);
             step('Provoked a delay on the anchor', temporal.reproduced ? 'reproduced at ' + temporal.delay + ' ms' : 'no reproduction', temporal.reproduced);
+            // Every branch below must be defensible from exactly what
+            // temporalProbe observed - never phrase a stronger claim than
+            // the evidence supports, and never a weaker one either. The
+            // reproduction note names the DERIVED TARGET that was actually
+            // delayed (`target`), not the raw anchor selector, since those
+            // two can differ (a chain/suffix anchor is delayed via its css
+            // base - see temporal-target.js).
             if (temporal.reproduced) {
               const n = temporal.matched;
               notes.push(
-                `fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late (the delay rule ` +
-                  `matched ${n} element${n === 1 ? '' : 's'}); likely a missing wait`,
+                `fails on every run when "${target}" appears ${temporal.delay} ms late (the delay rule ` +
+                  `matched ${n} element${n === 1 ? '' : 's'}, confirmed live in the stylesheet); likely a missing wait`,
               );
             } else if (temporal.control && temporal.control.failures > 0) {
               notes.push('temporal probe aborted: the control run without any delay already failed, so the baseline is too unstable to attribute failures to timing');
+            } else if (temporal.unreadable) {
+              // Distinct from "never acknowledged": the wrapper may well be
+              // installed, but its receipt could not be read (e.g. a
+              // permissions error). Telling the user to install the wrapper
+              // here would be a false, misleading claim.
+              notes.push(
+                'the inject wrapper\'s acknowledgment could not be read (a filesystem or permissions error), not ' +
+                  'that it was never installed; the timing verdict is unverified, not negative',
+              );
             } else if (temporal.injected === false) {
               notes.push('the inject wrapper never acknowledged the delay; install withTemporal from flakeproof/inject in the suite before trusting any timing verdict');
             } else if (temporal.matched === 0) {
@@ -204,11 +220,40 @@ export async function triage(opts) {
                 `the delay rule matched no element for "${target}"; timing was never actually tested, so this is ` +
                   'not evidence against a timing cause',
               );
-            } else if (temporal.matched > 0) {
+            } else if (temporal.matched > 0 && !temporal.ruleLive) {
+              // The selector matched real elements, but the delay rule built
+              // from that same selector was never confirmed live in the
+              // stylesheet (item D): the browser may have silently discarded
+              // it, so the experiment may never have actually run. A count
+              // alone cannot carry a confident claim in either direction.
               notes.push(
-                `no reproduction: the delay rule matched ${temporal.matched} element(s) on every round but the ` +
-                  'test still passed; timing is unlikely to be the cause',
+                `the delay rule matched ${temporal.matched} element(s) for "${target}", but the rule itself was ` +
+                  'never confirmed live in the stylesheet; the browser may have silently discarded it, so this is ' +
+                  'not evidence against a timing cause',
               );
+            } else if (temporal.matched > 0) {
+              // A confident negative ("timing is unlikely to be the cause")
+              // additionally requires that EVERY round tried actually
+              // demonstrated a nonzero match - not just the strongest one
+              // seen across rounds (item C). `temporal.matched` is the
+              // MAXIMUM observed across rounds, so if any round's count
+              // disagrees (unknown, or a confirmed zero), the "on every
+              // round" wording would overstate what was actually observed;
+              // hedge instead and show the reader what actually varied.
+              const everyRoundConfirmed =
+                temporal.tried.length > 0 && temporal.tried.every((t) => typeof t.matched === 'number' && t.matched > 0);
+              if (everyRoundConfirmed) {
+                notes.push(
+                  `no reproduction: the delay rule matched ${temporal.matched} element(s) on every round but the ` +
+                    'test still passed; timing is unlikely to be the cause',
+                );
+              } else {
+                const perRound = temporal.tried.map((t) => (typeof t.matched === 'number' ? String(t.matched) : 'unknown')).join(', ');
+                notes.push(
+                  `no reproduction: the delay rule's matched element count varied across rounds (${perRound}); ` +
+                    'at least one round did not confirm a nonzero match, so timing is not confidently ruled out',
+                );
+              }
             } else {
               notes.push('no reproduction: the delay style was installed on every round, but whether it affected the anchor is unverified; timing remains unlikely but not excluded');
             }

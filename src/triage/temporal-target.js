@@ -29,12 +29,31 @@
 
 // Splits `selector` into alternating quoted/unquoted spans so the structural
 // checks below can scan for syntax characters without ever looking inside a
-// quoted value. Unbalanced quoting is not this function's problem to fix -
-// a malformed selector that slips through is caught by the round-trip
-// validation at the call site (see isValidCssTarget).
+// quoted value. An unmatched quote character (an open quote with no closing
+// partner) fits neither the quoted-span alternative (which requires a
+// closing quote) nor the unquoted-run alternative (which explicitly excludes
+// quote characters), so `String.match` silently skips it. `joinSegments`
+// then reconstructs a selector missing exactly that character - a
+// DIFFERENT, still-valid selector that targets different elements (see Fix 7
+// in the review; `[data-x="a]` round-trips to `[data-x=a]`). This is NOT
+// caught by the round-trip validation at the call site (isValidCssTarget):
+// that check asks a real browser whether the DERIVED string is valid CSS,
+// and the mangled string usually is - just the wrong one. Detecting the drop
+// here, before it can happen, is `hasUnbalancedQuoting`'s job below; this
+// function itself makes no claim about catching malformed input.
 function segmentByQuotes(selector) {
   const tokens = selector.match(/"[^"]*"|'[^']*'|[^'"]+/g) || [];
   return tokens.map((text) => ({ text, quoted: text[0] === '"' || text[0] === "'" }));
+}
+
+// True when `segmentByQuotes` had to drop at least one character of
+// `selector` to produce its tokens - the signature of an unmatched quote.
+// Comparing the total length of every matched segment against the original
+// string catches this directly, regardless of exactly where the stray quote
+// sits.
+function hasUnbalancedQuoting(selector) {
+  const consumed = segmentByQuotes(selector).reduce((n, s) => n + s.text.length, 0);
+  return consumed !== selector.length;
 }
 
 function joinSegments(segments) {
@@ -75,6 +94,11 @@ function hasUnquotedColonOutsideNth(selector) {
 }
 
 export function temporalTargetFor(selector) {
+  // An unmatched quote means the structural scanning below would be working
+  // from a silently mangled copy of the input (see hasUnbalancedQuoting):
+  // abstain rather than derive a target for a DIFFERENT selector than the
+  // one that actually failed (Fix 7 in the review).
+  if (hasUnbalancedQuoting(selector)) return null;
   let base = splitChainOutsideQuotes(selector).trim();
   if (/^[a-z-]+=/i.test(base)) return null; // engine-prefixed: text=, role=, xpath=, id=
   if (base.startsWith('//') || base.startsWith('..')) return null; // bare xpath
@@ -96,12 +120,19 @@ export function temporalTargetFor(selector) {
 }
 
 // Validates a derived css target against a real browser via a round trip on
-// an empty page: `document.querySelector` either accepts the string as
-// syntactically valid css or throws. This is the backstop for anything the
-// string surgery above did not anticipate - unbalanced brackets, unknown
-// combinators, or any other mistake - because a selector a real browser
-// accepts is, by construction, valid css. It is deliberately kept separate
-// from temporalTargetFor (which stays synchronous) rather than folded in:
+// an empty page. This used to ask `document.querySelector(sel)` whether it
+// throws, but `querySelector` is MORE PERMISSIVE than the css stylesheet
+// parser: it happily accepts strings like `[data-x` or `#a[href^="/x"` that
+// a `<style>` rule silently drops zero rules for (verified against a real
+// browser; see the review). `temporalScript` never calls `querySelector` -
+// it installs an actual stylesheet rule - so validating with
+// `querySelector` was answering a question nobody was asking, in the
+// dangerous direction: it said "valid" for strings the real probe would
+// install as a no-op. The only oracle that matters is the one the probe
+// actually uses: install `selector + ' { visibility: hidden !important; }'`
+// into a real stylesheet and check that exactly one rule was accepted
+// (`sheet.cssRules.length === 1`). This is deliberately kept separate from
+// temporalTargetFor (which stays synchronous) rather than folded in:
 // spinning up a browser page is slow and turns every existing pure unit test
 // async for no benefit, and the issue this closes is specifically about
 // *validating* a candidate, not deriving one. Called once per candidate at
@@ -113,11 +144,15 @@ export async function isValidCssTarget(browser, selector) {
   try {
     /* eslint-disable no-undef */
     return await page.evaluate((sel) => {
+      const style = document.createElement('style');
       try {
-        document.querySelector(sel);
-        return true;
+        style.textContent = sel + ' { visibility: hidden !important; }';
+        document.documentElement.appendChild(style);
+        return !!style.sheet && style.sheet.cssRules.length === 1;
       } catch {
         return false;
+      } finally {
+        style.remove();
       }
     }, selector);
     /* eslint-enable no-undef */

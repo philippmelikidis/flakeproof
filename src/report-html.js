@@ -293,16 +293,16 @@ function recommendations(list) {
 function timing(temporal) {
   if (!temporal?.tried?.length) return '';
   const rows = temporal.tried
-    .map(
-      (t) =>
-        `<tr><td>${esc(t.delay)} ms</td><td>${esc(t.failures)}/${esc(t.runs)} runs failed</td><td>${
-          temporal.reproduced && temporal.delay === t.delay ? 'reproduces' : ''
-        }</td></tr>`,
-    )
+    .map((t) => {
+      const matched = typeof t.matched === 'number' ? String(t.matched) : 'unknown';
+      const ruleLive = t.ruleLive ? 'yes' : 'no/unknown';
+      const marker = temporal.reproduced && temporal.delay === t.delay ? 'reproduces' : '';
+      return `<tr><td>${esc(t.delay)} ms</td><td>${esc(t.failures)}/${esc(t.runs)} runs failed</td><td>${esc(matched)}</td><td>${esc(ruleLive)}</td><td>${marker}</td></tr>`;
+    })
     .join('');
   return section(
     'Timing provocation',
-    `<table><thead><tr><th>Delay</th><th>Result</th><th></th></tr></thead><tbody>${rows}</tbody></table>`,
+    `<table><thead><tr><th>Delay</th><th>Result</th><th>Matched</th><th>Rule live</th><th></th></tr></thead><tbody>${rows}</tbody></table>`,
   );
 }
 

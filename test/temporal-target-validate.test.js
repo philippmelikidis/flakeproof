@@ -35,3 +35,37 @@ test('isValidCssTarget rejects a target the string surgery could not anticipate'
     await browser.close();
   }
 });
+
+// Fix 3 (review, CRITICAL): the previous oracle used `document.querySelector`,
+// which is MORE PERMISSIVE than the css stylesheet parser temporalScript
+// actually relies on. Every selector below was verified against a real
+// browser to be accepted by `querySelector` (so the old oracle said
+// "valid") while installing it as an actual `<style>` rule produces ZERO
+// rules - the delay style is a silent no-op, but the old oracle waved it
+// through. The fix installs the real rule and checks `cssRules.length`,
+// which is the only oracle that matches what the probe actually does.
+test('isValidCssTarget rejects every selector the stylesheet parser actually drops', async () => {
+  const browser = await chromium.launch();
+  try {
+    const rejected = ['[data-x', '[data-x="a"', '.a[b="c', '[foo=bar', '#a[href^="/x"'];
+    for (const selector of rejected) {
+      assert.equal(
+        await isValidCssTarget(browser, selector),
+        false,
+        `expected "${selector}" to be rejected: the stylesheet parser installs 0 rules for it`,
+      );
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
+test('isValidCssTarget still accepts a target that installs as exactly one real rule', async () => {
+  const browser = await chromium.launch();
+  try {
+    assert.equal(await isValidCssTarget(browser, '#cta'), true);
+    assert.equal(await isValidCssTarget(browser, '[data-x=">>"]'), true);
+  } finally {
+    await browser.close();
+  }
+});

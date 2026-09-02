@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>flakeproof SPA fixture</title></head>
+<body>
+  <main id="content"><h1>Fixture</h1></main>
+  <script>
+    // #cta does not exist at DOMContentLoaded; a real SPA would insert it
+    // once some client-side render pass completes. Inserted 300ms after
+    // load so a temporal delay rule that is still live at insertion time
+    // continues to apply to it (visibility rules are continuous, not
+    // one-shot - see src/probe/temporal.js).
+    setTimeout(() => {
+      const cta = document.createElement('a');
+      cta.id = 'cta';
+      cta.className = 'btn btn-primary';
+      cta.href = '/contact/';
+      cta.textContent = 'Contact us';
+      document.body.appendChild(cta);
+    }, 300);
+  </script>
+</body>
+</html>
