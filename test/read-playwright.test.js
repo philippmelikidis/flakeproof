@@ -16,5 +16,7 @@ test('reads the failed test and extracts its anchor', async () => {
 
 test('the message is free of ansi escapes', async () => {
   const failures = await failedTestsFromPlaywrightJson(FIXTURE);
-  assert.ok(!/\[/.test(failures[0].message), 'ansi escapes must be stripped');
+  // eslint-disable-next-line no-control-regex -- asserting the escapes are gone requires naming the byte
+  assert.ok(!/\u001b/.test(failures[0].message), 'no escape byte may survive');
+  assert.ok(!/\[[0-9;]*m/.test(failures[0].message), 'no color code may survive');
 });

@@ -6,7 +6,8 @@ import { extractAnchor } from '../triage/anchor.js';
 
 // The reporter writes colored output, and the escapes hide the locator from
 // the anchor extraction.
-const ANSI = /\[[0-9;]*m/g;
+// eslint-disable-next-line no-control-regex -- stripping ansi requires matching the escape byte
+const ANSI = /\u001b\[[0-9;]*m/g;
 
 function collect(suite, out, filePath) {
   const file = suite.file ?? filePath ?? '';
