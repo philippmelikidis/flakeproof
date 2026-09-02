@@ -94,12 +94,19 @@ async function runAndRead(cmd, { cwd, reader, resultsPath, env } = {}) {
 // denominator unless it was also actually judged: an inconclusive round
 // (Fix 1) or a round the mutation did not survive to (Fix 3) both mean zero
 // observations exist for that round, and the headline sentence must never
-// claim otherwise.
+// claim otherwise. A round whose survival could not be confirmed at all
+// (`survivalUnknown`, audit Fix 4) is its own bucket too - the page's whole
+// lifetime never produced a positive "still held" reading, so silence must
+// not be counted as if it were one.
 function summarize(records) {
   const applied = records.filter((r) => r.applied === true);
   const notApplied = records.filter((r) => r.applied !== true);
   const notSurvived = applied.filter((r) => r.survived === false);
-  const judgeable = applied.filter((r) => r.survived !== false);
+  const survivalUnknown = applied.filter((r) => r.survivalUnknown === true);
+  // Only a round positively confirmed to have survived the page's whole
+  // lifetime (`survived === true`) is a real observation - `null` (unknown)
+  // is excluded here too, never treated as "tested against" (audit Fix 4).
+  const judgeable = applied.filter((r) => r.survived === true);
   const noticed = judgeable.filter((r) => r.noticed === true);
   const unnoticed = judgeable.filter((r) => r.noticed === false);
   const inconclusive = judgeable.filter((r) => r.noticed !== true && r.noticed !== false);
@@ -108,6 +115,7 @@ function summarize(records) {
     applied: applied.length,
     notApplied: notApplied.length,
     notSurvived: notSurvived.length,
+    survivalUnknown: survivalUnknown.length,
     judged: noticed.length + unnoticed.length,
     noticed: noticed.length,
     unnoticed: unnoticed.length,
@@ -125,38 +133,82 @@ function buildRecord(selector, mutation, attempts) {
   const applied = appliedFlags.every((a) => a === true);
   if (!applied) {
     const everFound = attempts.some((a) => a.ack.found === true);
+    const everConfirmedAbsent = attempts.some((a) => a.ack.found === false);
     const errored = attempts.find((a) => typeof a.ack.error === 'string');
+    // Distinguishes "no such element on this page" (never-found, a
+    // confirmed absence) from "the element appeared but this mutation could
+    // not touch it, e.g. change-href on a link with no href"
+    // (found-not-applicable) from a version mismatch between flakeproof and
+    // its own inject wrapper (unknown-mutation-id) from "the page never
+    // reported back at all" (unknown - not a confirmed absence, audit
+    // Fix 4b: this used to be folded into never-found, which states a
+    // confirmed absence the wrapper never actually established) - each
+    // needs a different fix, and folding them into one generic "check your
+    // selectors" message sends the user chasing the wrong problem (Fix 6 in
+    // the earlier review).
+    let applyReason;
+    if (errored) applyReason = 'unknown-mutation-id';
+    else if (everFound) applyReason = 'found-not-applicable';
+    else if (everConfirmedAbsent) applyReason = 'never-found';
+    else applyReason = 'unknown';
+
+    // The run outcome for a not-applied round used to be thrown away
+    // entirely (`redTests: []` unconditionally). That discarded the tool's
+    // own counter-evidence: a round where the mutation definitely never
+    // touched the page going red anyway is direct proof that the redness
+    // has nothing to do with any mutation - a constant unrelated cause (a
+    // backend that went down, the injection itself breaking the suite)
+    // makes every round red regardless of what was mutated. That proof must
+    // survive into the record so the caller can refuse to score anything as
+    // "noticed" once it exists (audit Fix 2).
+    const runReds = attempts.map((a) => (a.run.unreadable || a.run.reporterMismatch ? null : a.run.failures.length > 0));
+    const redWithoutApplying = runReds.some((r) => r === true);
+    const redTests = redWithoutApplying
+      ? [...new Set(attempts.filter((a, i) => runReds[i] === true).flatMap((a) => a.run.failures.map((f) => f.testId)))]
+      : [];
+
     return {
       ...base,
       applied: false,
-      // Distinguishes "no such element on this page" (never-found) from
-      // "the element appeared but this mutation could not touch it, e.g.
-      // change-href on a link with no href" (found-not-applicable) from a
-      // version mismatch between flakeproof and its own inject wrapper
-      // (unknown-mutation-id) - each needs a different fix, and folding them
-      // into one generic "check your selectors" message sends the user
-      // chasing the wrong problem (Fix 6 in the review).
-      applyReason: errored ? 'unknown-mutation-id' : everFound ? 'found-not-applicable' : 'never-found',
-      found: everFound,
+      applyReason,
+      found: everFound ? true : everConfirmedAbsent ? false : null,
       survived: null,
       frame: null,
       noticed: null,
       inconclusiveReason: null,
-      redTests: [],
+      redTests,
+      redWithoutApplying,
     };
   }
 
   const survivedFlags = attempts.map((a) => a.ack.survived);
   const frame = attempts.map((a) => a.ack.frame).find((f) => typeof f === 'string') ?? null;
 
-  if (survivedFlags.every((s) => s === false)) {
-    // The mutation applied on every run, but by the time the wrapper
-    // re-checked after the page settled, it was gone on every run too - an
-    // ordinary re-render (hydration, client-side i18n) silently undid it
-    // before the suite ever got a fair look. This is its own category,
-    // never folded into "unnoticed": the suite was never actually tested
-    // against this change (Fix 3 in the review).
+  if (survivedFlags.some((s) => s === false)) {
+    // ANY run that positively observed the mutation being reverted before
+    // the suite's own assertions is definite, unretractable proof this
+    // round was never fairly tested - an ordinary re-render (hydration,
+    // client-side i18n) undid it before the suite could react. Every other
+    // signal in this file demands unanimity to make a POSITIVE claim
+    // (noticed, a shared red test); this is the one place unanimity must
+    // run the other way: a second run that failed to observe the same
+    // revert (a slower browser, a race that happened not to trigger it)
+    // must never erase what another run directly saw (audit Fix 3 - the
+    // previous version required EVERY run to agree it reverted via
+    // `.every`, so one run's silence overrode another run's positive
+    // observation).
     return { ...base, applied: true, applyReason: null, found: true, survived: false, frame, noticed: null, inconclusiveReason: null, redTests: [] };
+  }
+
+  if (!survivedFlags.every((s) => s === true)) {
+    // Nothing positively confirmed the mutation held for the page's whole
+    // lifetime - some run's survival is simply unknown (for example the
+    // page closed before the wrapper could report a final state; the
+    // flagship "asserts nothing meaningful" fixture hits exactly this on a
+    // real run). Silence must never read as confirmation: this is its own
+    // category, excluded from the score, never folded into "unnoticed"
+    // (audit Fix 4).
+    return { ...base, applied: true, applyReason: null, found: true, survived: null, frame, noticed: null, inconclusiveReason: null, survivalUnknown: true, redTests: [] };
   }
 
   // A reporter-mismatch run cannot be trusted either way; its "noticed"
@@ -194,7 +246,7 @@ function buildRecord(selector, mutation, attempts) {
     applied: true,
     applyReason: null,
     found: true,
-    survived: survivedFlags.every((s) => s === true) ? true : null,
+    survived: true,
     frame,
     noticed,
     inconclusiveReason,
@@ -362,7 +414,15 @@ export async function measureBlindspots(opts) {
           // rest of the budget re-discovering it (Fix 7 and honesty both
           // point the same way).
           abort = {
-            abstained: ack.unreadable ? 'results-unreadable' : 'wrapper-not-installed',
+            // A file at the ACK path that could not be read is a filesystem
+            // problem, not the same thing as an unreadable TEST RESULT file
+            // (the `results-unreadable` abstention used above for the
+            // control pass) - reusing that key here let the renderer's
+            // generic "check the reporter configuration" text win over the
+            // real, more specific reason this file already builds below,
+            // sending the user to fix the wrong thing entirely (audit
+            // Fix 4c). This has its own key so its own text can be shown.
+            abstained: ack.unreadable ? 'mutation-ack-unreadable' : 'wrapper-not-installed',
             reason: ack.unreadable
               ? 'the mutation acknowledgment could not be read; this is a filesystem problem, not proof the wrapper is missing'
               : WRAPPER_NOT_INSTALLED_REASON,
@@ -379,7 +439,36 @@ export async function measureBlindspots(opts) {
       }
       if (abort) return abort;
 
-      records.push(buildRecord(selector, mutation, attempts));
+      const record = buildRecord(selector, mutation, attempts);
+      records.push(record);
+
+      if (record.redWithoutApplying) {
+        // A round where the mutation definitely never touched the page
+        // still went red: proof that whatever is causing the redness has
+        // nothing to do with any mutation (a backend dependency going down,
+        // the injection wrapper itself breaking the suite, an unrelated
+        // regression). Once this exists, no round anywhere in this
+        // measurement may be scored "noticed" - every other red round is
+        // equally suspect, and the score sentence would be a guess, not a
+        // fact. Stop spending the rest of the budget on a suite that is
+        // already known to be red for a reason no mutation caused (audit
+        // Fix 2).
+        const remaining = targets.slice(i + 1).map((t) => ({ target: t.selector, mutation: t.mutation.id, description: t.mutation.description }));
+        skipped.push(...remaining);
+        return {
+          abstained: 'red-unrelated-to-mutations',
+          reason:
+            `the suite went red on \`${record.target}\` / ${record.id} even though that mutation never touched the page` +
+            (record.redTests.length ? ` (red test(s): ${record.redTests.join(', ')})` : '') +
+            '; something other than the injected mutations is causing failures (a backend dependency, an unrelated regression, or the mutation wrapper itself breaking the suite). No score can be trusted until the suite is reliably green whenever a mutation does not touch the page.',
+          control,
+          wrapperInstalled: true,
+          records,
+          counts: summarize(records),
+          skipped,
+          notes: [],
+        };
+      }
     }
 
     const counts = summarize(records);
@@ -394,7 +483,7 @@ export async function measureBlindspots(opts) {
     if (counts.applied === 0) {
       return {
         abstained: 'no-mutations-applied',
-        reason: 'none of the attempted mutations actually applied; check the selectors',
+        reason: 'none of the attempted mutations were confirmed to touch the page; see the records below for exactly why each one did not apply',
         control,
         wrapperInstalled: true,
         records,
@@ -407,11 +496,39 @@ export async function measureBlindspots(opts) {
     if (counts.judged === 0) {
       // Every mutation that applied produced zero usable observations.
       // Never guess a score over nothing: say exactly why nothing could be
-      // judged (Fix 1 and Fix 3 in the review).
+      // judged (Fix 1, Fix 3 and Fix 4 in the review).
       const allInconclusive = counts.inconclusive === counts.applied;
       const allNotSurvived = counts.notSurvived === counts.applied;
-      const abstained = allInconclusive ? 'all-inconclusive' : allNotSurvived ? 'all-not-survived' : 'no-observations';
+      const allSurvivalUnknown = counts.survivalUnknown === counts.applied;
+      const abstained = allInconclusive
+        ? 'all-inconclusive'
+        : allNotSurvived
+          ? 'all-not-survived'
+          : allSurvivalUnknown
+            ? 'all-survival-unknown'
+            : 'no-observations';
       return { abstained, reason: null, control, wrapperInstalled: true, records, counts, skipped, notes };
+    }
+
+    // Second, weaker signal for the same confound Fix 2 guards against: the
+    // exact same test named as the catcher for every "noticed" mutation,
+    // across structurally different mutations, can be a legitimately broad
+    // assertion (a header test that genuinely reacts to text, href AND
+    // removal) or a sign that the redness is not really caused by each
+    // individual mutation. Unlike the not-applied proof above, this alone
+    // cannot distinguish the two cases, so it is surfaced as a note for a
+    // human to look at, never used to override or discard a score outright.
+    const noticedRecords = records.filter((r) => r.noticed === true);
+    if (noticedRecords.length > 1) {
+      const catcherSets = noticedRecords.map((r) => new Set(r.redTests));
+      const commonCatchers = [...catcherSets[0]].filter((t) => catcherSets.every((s) => s.has(t)));
+      const distinctMutationIds = new Set(noticedRecords.map((r) => r.id));
+      if (commonCatchers.length > 0 && distinctMutationIds.size > 1) {
+        notes.push(
+          `the same test (${commonCatchers.join(', ')}) was named as the catcher for ${distinctMutationIds.size} structurally different mutations; ` +
+            'this can be a legitimately broad assertion, or a sign that the redness is not really caused by each individual mutation. Worth a manual look before trusting the noticed count.',
+        );
+      }
     }
 
     return { abstained: null, reason: null, control, wrapperInstalled: true, records, counts, skipped, notes };

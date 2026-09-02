@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withTemporal } from '../src/inject/playwright.js';
+import { readMutationAck, MUTATION_SURVIVED_FILE } from '../src/blindspots/ack.js';
 
 // FLAKEPROOF_TEMPORAL_ACK is a directory: every acknowledging write gets its
 // own uniquely named file inside it (see Fix 1 in the review). This reads
@@ -189,6 +190,59 @@ test('injects the mutation script and acknowledges installation before the appli
       { installed: true, applied: true, survived: null, frame: null, found: true },
     ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     assert.deepEqual(sorted, expected);
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    delete process.env.FLAKEPROOF_MUTATION_SELECTOR;
+    delete process.env.FLAKEPROOF_MUTATION_ACK;
+    await rm(ackDir, { recursive: true, force: true });
+  }
+});
+
+// Audit Fix 1 / Fix 5: `survived` describes an evolving state, so
+// src/inject/playwright.js keeps one dedicated file (MUTATION_SURVIVED_FILE)
+// that is OVERWRITTEN on every update, rather than accumulating a new file
+// per report the way applied/found do. This is what lets a later revert
+// (Fix 1) or a later self-correction after an async re-parent (Fix 5) win
+// over an earlier, now-stale reading without readMutationAck having to
+// guess which of several conflicting files to trust.
+test('a later survived report overwrites the dedicated survived file rather than adding a new one', async () => {
+  process.env.FLAKEPROOF_MUTATION_ID = 'change-text';
+  process.env.FLAKEPROOF_MUTATION_SELECTOR = '#header-title';
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-mutation-ack-'));
+  process.env.FLAKEPROOF_MUTATION_ACK = ackDir;
+  try {
+    const wrapped = withTemporal(stubBase());
+    const context = stubContext();
+    await runContextFixture(wrapped, context);
+
+    // First report: the mutation applied and, as far as the page currently
+    // knows, is still holding.
+    await context.bindings.__flakeproofMutationApplied({}, true, true, null, true);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(ackDir, MUTATION_SURVIVED_FILE), 'utf8')),
+      { installed: true, applied: true, survived: true, frame: null, found: true },
+    );
+    let ack = await readMutationAck(ackDir);
+    assert.equal(ack.survived, true);
+
+    // A later report says it reverted - this must OVERWRITE the dedicated
+    // file (same name), not add a competing one, and readMutationAck must
+    // reflect the newer answer.
+    await context.bindings.__flakeproofMutationApplied({}, true, false, null, true);
+    const survivedFileEntries = (await readdir(ackDir)).filter((e) => e === MUTATION_SURVIVED_FILE);
+    assert.equal(survivedFileEntries.length, 1, 'exactly one dedicated survived file, always overwritten');
+    assert.deepEqual(
+      JSON.parse(await readFile(join(ackDir, MUTATION_SURVIVED_FILE), 'utf8')),
+      { installed: true, applied: true, survived: false, frame: null, found: true },
+    );
+    ack = await readMutationAck(ackDir);
+    assert.equal(ack.survived, false, 'the later, overwritten reading must win - not "true from any writer"');
+
+    // And a later self-correction (an async re-parent healing itself) must
+    // be just as able to win back, in the other direction.
+    await context.bindings.__flakeproofMutationApplied({}, true, true, null, true);
+    ack = await readMutationAck(ackDir);
+    assert.equal(ack.survived, true, 'a later correction back to true must also win - recency, not a fixed priority');
   } finally {
     delete process.env.FLAKEPROOF_MUTATION_ID;
     delete process.env.FLAKEPROOF_MUTATION_SELECTOR;

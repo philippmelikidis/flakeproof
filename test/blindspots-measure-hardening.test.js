@@ -357,13 +357,11 @@ test('Fix 5: a stale FLAKEPROOF_TEMPORAL_* export from the same shell does not l
 // ---------------------------------------------------------------------------
 
 test('Fix 6: the robot reader is rejected upfront with the real reason, never silently run', async () => {
-  let spawned = false;
   const cmd = process.platform === 'win32' ? 'cmd /c exit 0' : 'true'; // never actually reached
   await assert.rejects(
     () => measureBlindspots({ cmd, reader: 'robot', resultsPath: 'r.xml', selectors: ['#a'] }),
     /robot reader|issue #11/i,
   );
-  assert.equal(spawned, false);
 });
 
 // ---------------------------------------------------------------------------
@@ -418,6 +416,193 @@ test('Fix 7: a budget that runs out partway through reports exactly what was ski
       assert.ok(result.notes.some((n) => /budget/.test(n) && /skipped/.test(n)));
     } finally {
       unsetEnv(env);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit fix bundle (second review round): a not-applied round going red is
+// proof the redness is unrelated to any mutation, and must never be thrown
+// away or let a coincidentally-applied round fake a perfect score.
+// ---------------------------------------------------------------------------
+
+test('Audit Fix 2: a not-applied round that goes red is proof the redness is unrelated to any mutation - the tool abstains rather than scoring anything as noticed', async () => {
+  await withTempDir(async (dir) => {
+    const script = await writeFlexibleSuite(dir);
+    const env = envFor(dir, {
+      FP_BEHAVIOR: JSON.stringify({
+        // Applies cleanly and would look "noticed" under the old logic.
+        'change-text::#a': { applies: true, survived: true, red: true },
+        // Never applies, yet the suite is red anyway on every run - direct
+        // proof the redness has nothing to do with any mutation.
+        'change-href::#a': { applies: false, red: true },
+      }),
+    });
+    setEnv(env);
+    try {
+      const result = await measureBlindspots({
+        cmd: `node ${script}`,
+        reader: 'playwright',
+        resultsPath: env.FP_RESULTS_PATH,
+        selectors: ['#a'],
+        mutations: ['change-text', 'change-href'],
+        runsPerRound: 2,
+      });
+      assert.equal(result.abstained, 'red-unrelated-to-mutations', JSON.stringify(result));
+      assert.match(result.reason, /change-href/);
+      assert.ok(!/The suite notices/.test(JSON.stringify(result)), 'no score sentence anywhere once this confound is found');
+    } finally {
+      unsetEnv(env);
+    }
+  });
+});
+
+test('Audit Fix 2 (second signal): the same test named as catcher for structurally different mutations produces a note, never a silently trusted perfect score', async () => {
+  await withTempDir(async (dir) => {
+    const script = join(dir, 'same-catcher.cjs');
+    await writeFile(
+      script,
+      `
+const fs = require('fs');
+const path = require('path');
+const resultsPath = process.env.FP_RESULTS_PATH;
+const mutationId = process.env.FLAKEPROOF_MUTATION_ID;
+const ackDir = process.env.FLAKEPROOF_MUTATION_ACK;
+if (ackDir) {
+  fs.mkdirSync(ackDir, { recursive: true });
+  fs.writeFileSync(path.join(ackDir, 'a.json'), JSON.stringify({ installed: true, applied: !!mutationId, survived: mutationId ? true : null }));
+}
+if (!mutationId) { fs.writeFileSync(resultsPath, JSON.stringify({ suites: [] })); process.exit(0); }
+fs.writeFileSync(resultsPath, JSON.stringify({
+  suites: [{ specs: [{ file: 'checkout.spec.js', title: 'completes checkout', tests: [{ results: [{ status: 'failed', error: { message: 'boom' } }] }] }] }],
+}));
+process.exit(1);
+`,
+    );
+    const resultsPath = join(dir, 'results.json');
+    process.env.FP_RESULTS_PATH = resultsPath;
+    try {
+      const result = await measureBlindspots({
+        cmd: `node ${script}`,
+        reader: 'playwright',
+        resultsPath,
+        selectors: ['#a'],
+        mutations: ['change-text', 'change-href'],
+        runsPerRound: 1,
+      });
+      assert.equal(result.abstained, null, JSON.stringify(result));
+      assert.equal(result.counts.noticed, 2, 'both mutations genuinely applied and the suite was red on every run of each');
+      assert.ok(
+        result.notes.some((n) => /same test/.test(n) && /completes checkout/.test(n)),
+        JSON.stringify(result.notes),
+      );
+    } finally {
+      delete process.env.FP_RESULTS_PATH;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit Fix 3: unanimity is required in the SAFE direction only. A single
+// run that positively observed a revert must never be overridden by another
+// run that simply failed to observe it.
+// ---------------------------------------------------------------------------
+
+test('Audit Fix 3: one run observing a revert excludes the round, even when another run of the same round says it survived', async () => {
+  await withTempDir(async (dir) => {
+    const script = join(dir, 'disagree.cjs');
+    await writeFile(
+      script,
+      `
+const fs = require('fs');
+const path = require('path');
+const resultsPath = process.env.FP_RESULTS_PATH;
+const mutationId = process.env.FLAKEPROOF_MUTATION_ID;
+const ackDir = process.env.FLAKEPROOF_MUTATION_ACK;
+const counterFile = process.env.FP_COUNTER_FILE;
+function writeGreen() { fs.writeFileSync(resultsPath, JSON.stringify({ suites: [] })); }
+if (!mutationId) { writeGreen(); process.exit(0); }
+let n = 0;
+if (fs.existsSync(counterFile)) n = Number(fs.readFileSync(counterFile, 'utf8'));
+fs.writeFileSync(counterFile, String(n + 1));
+if (ackDir) {
+  fs.mkdirSync(ackDir, { recursive: true });
+  // Run 0 positively observes the revert; run 1 reports it held. Fix 3: the
+  // round must be excluded (survived: false) regardless of run order.
+  fs.writeFileSync(path.join(ackDir, 'a.json'), JSON.stringify({ installed: true, applied: true, survived: n === 0 ? false : true }));
+}
+writeGreen();
+process.exit(0);
+`,
+    );
+    const resultsPath = join(dir, 'results.json');
+    const counterFile = join(dir, 'counter');
+    process.env.FP_RESULTS_PATH = resultsPath;
+    process.env.FP_COUNTER_FILE = counterFile;
+    try {
+      const result = await measureBlindspots({
+        cmd: `node ${script}`,
+        reader: 'playwright',
+        resultsPath,
+        selectors: ['#header-title'],
+        mutations: ['change-text'],
+        runsPerRound: 2,
+      });
+      assert.equal(result.abstained, 'all-not-survived', JSON.stringify(result));
+      assert.equal(result.records[0].survived, false, 'one positive observation of a revert must win, not be erased by the other run');
+      assert.equal(result.records[0].noticed, null);
+    } finally {
+      delete process.env.FP_RESULTS_PATH;
+      delete process.env.FP_COUNTER_FILE;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit Fix 4: an unknown survival state must never be treated as confirmed.
+// ---------------------------------------------------------------------------
+
+test('Audit Fix 4: a round whose survival was never confirmed is excluded from the score, not folded into unnoticed', async () => {
+  await withTempDir(async (dir) => {
+    const script = join(dir, 'unknown-survival.cjs');
+    await writeFile(
+      script,
+      `
+const fs = require('fs');
+const path = require('path');
+const resultsPath = process.env.FP_RESULTS_PATH;
+const mutationId = process.env.FLAKEPROOF_MUTATION_ID;
+const ackDir = process.env.FLAKEPROOF_MUTATION_ACK;
+function writeGreen() { fs.writeFileSync(resultsPath, JSON.stringify({ suites: [] })); }
+if (!mutationId) { writeGreen(); process.exit(0); }
+if (ackDir) {
+  fs.mkdirSync(ackDir, { recursive: true });
+  // applied: true, but survived is never reported at all (null) - the page
+  // closed before the wrapper's settle/teardown report could land.
+  fs.writeFileSync(path.join(ackDir, 'a.json'), JSON.stringify({ installed: true, applied: true, survived: null }));
+}
+writeGreen();
+process.exit(0);
+`,
+    );
+    const resultsPath = join(dir, 'results.json');
+    process.env.FP_RESULTS_PATH = resultsPath;
+    try {
+      const result = await measureBlindspots({
+        cmd: `node ${script}`,
+        reader: 'playwright',
+        resultsPath,
+        selectors: ['#header-title'],
+        mutations: ['change-text'],
+        runsPerRound: 1,
+      });
+      assert.equal(result.abstained, 'all-survival-unknown', JSON.stringify(result));
+      assert.equal(result.records[0].survived, null);
+      assert.equal(result.records[0].survivalUnknown, true);
+      assert.equal(result.records[0].noticed, null, 'never scored as unnoticed just because survival is unknown');
+      assert.equal(result.counts.judged, 0);
+    } finally {
+      delete process.env.FP_RESULTS_PATH;
     }
   });
 });

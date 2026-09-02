@@ -2,10 +2,21 @@
 // (FLAKEPROOF_MUTATION_ACK). Mirrors src/triage/temporal-probe.js's ack
 // reading closely: `applied`, `survived`, `frame` and `found` are each their
 // own independent signal, exactly like temporal-probe.js's `count` and
-// `ruleLive` - never fused across different writers, and never guessed when
-// unknown.
+// `ruleLive` - never guessed when unknown. `applied`/`found`/`frame` are
+// combined across every writer (any confirmed `true` wins - a sibling
+// frame's `false` must never erase it). `survived` is different: it
+// describes an evolving state, not an independent per-writer fact, so it is
+// read from whichever report landed most recently instead (see
+// `MUTATION_SURVIVED_FILE` below).
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+
+// The one ack file name src/inject/playwright.js overwrites (never
+// randomly-named like every other ack file) so that reading it back always
+// yields the wrapper's LATEST knowledge of whether the mutation survived,
+// regardless of how many earlier reports said something different. See the
+// `survived` handling in `readMutationAck` below.
+export const MUTATION_SURVIVED_FILE = 'survived.json';
 
 // Interprets the raw text of ONE ack payload - either the entire content of
 // a plain-file ack, or the content of one file inside the ack directory.
@@ -103,13 +114,19 @@ export async function readMutationAck(ackPath) {
     return { installed: null, applied: null, survived: null, frame: null, found: null, error: null, unreadable: true };
   }
   const payloads = [];
+  let survivedPayload = null;
   let anyFileUnreadable = false;
   for (const entry of entries) {
+    let raw;
     try {
-      payloads.push(parseAckPayload(await readFile(join(ackPath, entry), 'utf8')));
+      raw = await readFile(join(ackPath, entry), 'utf8');
     } catch {
       anyFileUnreadable = true;
+      continue;
     }
+    const parsed = parseAckPayload(raw);
+    payloads.push(parsed);
+    if (entry === MUTATION_SURVIVED_FILE) survivedPayload = parsed;
   }
   if (payloads.length === 0) {
     return anyFileUnreadable
@@ -121,7 +138,18 @@ export async function readMutationAck(ackPath) {
     return { installed: null, applied: null, survived: null, frame: null, found: null, error: null, unreadable: false };
   }
   const applied = pickBoolean(confirmedInstalled, 'applied');
-  const survived = pickBoolean(confirmedInstalled, 'survived');
+  // `survived` describes an evolving state, not an independent fact each
+  // writer contributes the way `applied`/`found` do - a stale "still true"
+  // reading must never outrank a later, genuinely observed revert, and a
+  // later correction (an async re-parent healing itself) must never be
+  // discarded either. src/inject/playwright.js keeps exactly one file
+  // (`MUTATION_SURVIVED_FILE`) that gets overwritten on every update, so
+  // whichever report landed most recently is read back here as-is - only
+  // recency decides, never a fixed true/false priority (audit Fix 1 and
+  // Fix 5). Falls back to the old cross-file combination only when no such
+  // file exists at all (for example an ack written by hand, or a version of
+  // the wrapper that predates this file).
+  const survived = survivedPayload?.installed === true ? survivedPayload.survived : pickBoolean(confirmedInstalled, 'survived');
   const found = pickBoolean(confirmedInstalled, 'found');
   const framedByApplied = confirmedInstalled.find((p) => p.applied === true && typeof p.frame === 'string');
   const framedByAny = confirmedInstalled.find((p) => typeof p.frame === 'string');

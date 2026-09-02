@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { temporalScript } from '../probe/temporal.js';
 import { mutationScript } from '../probe/mutation-script.js';
 import { semanticMutations } from '../probe/catalogs/semantic.js';
+import { MUTATION_SURVIVED_FILE } from '../blindspots/ack.js';
 
 const REPORT_FN = '__flakeproofTemporalMatchCount';
 const MUTATION_REPORT_FN = '__flakeproofMutationApplied';
@@ -96,10 +97,26 @@ export function withTemporal(base) {
         const mutationAckDir = process.env.FLAKEPROOF_MUTATION_ACK;
         const writeMutationAck = async (fields) => {
           if (!mutationAckDir) return;
+          const payload = JSON.stringify({ installed: true, ...fields });
           const file = join(mutationAckDir, `${process.pid}-${randomUUID()}.json`);
           await mkdir(mutationAckDir, { recursive: true })
-            .then(() => writeFile(file, JSON.stringify({ installed: true, ...fields })))
+            .then(() => writeFile(file, payload))
             .catch(() => {});
+          if (fields.survived === true || fields.survived === false) {
+            // `survived` describes the mutation's CURRENT state, not an
+            // independent fact each writer contributes the way applied/found
+            // do (see src/probe/mutation-script.js, which now reports every
+            // observed change in either direction). A dedicated file that
+            // gets OVERWRITTEN on every update always holds whichever report
+            // landed most recently, so a later correction (a delayed
+            // revert - audit Fix 1, or an async re-parent healing itself -
+            // audit Fix 5) is never outraced or discarded by an earlier one,
+            // in either direction. src/blindspots/ack.js reads this file as
+            // the authoritative answer for `survived` when it exists.
+            await mkdir(mutationAckDir, { recursive: true })
+              .then(() => writeFile(join(mutationAckDir, MUTATION_SURVIVED_FILE), payload))
+              .catch(() => {});
+          }
         };
         if (!mutation) {
           // The env vars name a mutation id this copy of the catalog does

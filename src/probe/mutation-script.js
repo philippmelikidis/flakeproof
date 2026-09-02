@@ -30,28 +30,67 @@
 // (e.g. change-href on a link with no `href`) are never conflated into the
 // same, misleadingly generic "check your selector" message.
 //
-// Fix (hydration false blindness): a mutation is not a one-shot fact once
-// applied - a page that re-renders the mutated node afterwards (ordinary
-// React/Vue/Svelte hydration, or client-side i18n swapping text back in)
-// silently undoes it before the suite's own assertions ever run. Reporting
-// only the DOMContentLoaded-time `applied` boolean, as the previous version
-// did, could not tell a genuinely blind suite from a suite that never got a
-// fair look at the mutation at all. A `MutationObserver` watches the whole
-// document from the moment the mutation applies, and the instant `verify`
-// (the catalog's own check for whether the mutated state still holds) turns
-// false, that is reported immediately as `survived: false` - its own
-// signal, never folded into `applied`. A fixed delay was tried first and
-// rejected: a suite whose assertion is satisfied quickly closes its page
-// (and tears down all of this script's timers) well before any
-// arbitrarily-chosen delay would fire, which is exactly the scenario this
-// needs to catch - a sensitive suite passing fast because the page reverted
-// the mutation in time. Reacting to the mutation as it happens, rather than
-// polling for it later, has no such race. `SETTLE_MS` remains as a bounded
-// fallback purely for the positive case (nothing ever reverted): useful
-// when the page outlives it, harmless (an absent report, never a fabricated
-// one) when it does not - mirroring src/probe/temporal.js's own precedent of
-// treating "the process was torn down before this could report" as an
-// honest "not knowable", never a guess.
+// Fix (hydration false blindness, hardened across two review rounds): a
+// mutation is not a one-shot fact once applied - a page that re-renders the
+// mutated node afterwards (ordinary React/Vue/Svelte hydration, or
+// client-side i18n swapping text back in) silently undoes it before the
+// suite's own assertions ever run. Reporting only the DOMContentLoaded-time
+// `applied` boolean, as the first version did, could not tell a genuinely
+// blind suite from a suite that never got a fair look at the mutation at
+// all. A `MutationObserver` watches the whole document from the moment the
+// mutation applies, and every time `verify` (the catalog's own check for
+// whether the mutated state still holds) changes, that current reading is
+// reported as `survived` - its own signal, never folded into `applied`.
+//
+// A second review round found that the observer above was watched for
+// SETTLE_MS (300ms) only: the first report, whichever fired first, silenced
+// everything afterwards, so a revert landing after that fixed window
+// (reproduced with a page restoring its content at 900ms) was never seen,
+// and the `survived: true` already written from the settle timer stood
+// uncorrected - a demonstrably sensitive suite reported as blind. The claim
+// this comment used to make here - that reacting to mutations as they
+// happen "has no such race" - was true of the mechanism but not of the
+// code: nothing kept that mechanism running past one report.
+//
+// The fix does two things together. First, this script never stops
+// reporting: every observed change in `verify`'s reading - in EITHER
+// direction - is reported as soon as it is seen, for as long as the page
+// lives, never gated behind "only the first one counts". Second,
+// src/blindspots/ack.js and src/inject/playwright.js treat `survived` as an
+// evolving state rather than an independent fact each report contributes:
+// the wrapper keeps a single, dedicated ack file that is OVERWRITTEN on
+// every update, so whichever report landed most recently is always what
+// gets read back, regardless of what an earlier report said. This is also
+// what makes the async re-parent fix below correct without needing any
+// arbitrary confirmation delay that would only reopen the exact race this
+// fix exists to close: a delay long enough to survive a real re-parent gap
+// is also long enough for a fast test's page teardown to win the race and
+// silence the report entirely.
+//
+// `pagehide`, `beforeunload` and `visibilitychange` (hidden) hook the
+// moment the page actually starts tearing down, so a final reading is taken
+// as late as the browser gives this script any chance to run at all - a
+// backstop for the (typically slow, CDP-driven) case where no DOM mutation
+// happens right at the end. What is still, honestly, not guaranteed: a
+// revert that happens strictly after every one of those signals has fired,
+// with no further DOM mutation to react to (or one so fast the browser
+// gives no JS turn to react to it at all), cannot be observed - there is no
+// hook left to catch it, and this script reports nothing further rather
+// than guess. `SETTLE_MS` remains as an early reading for the common
+// positive case (nothing has reverted yet): useful context while the page
+// is still running, but never treated as the last word by anything reading
+// it back.
+//
+// Fix (async re-parent false revert): a single MutationObserver callback
+// where `verify` reads false is not by itself proof of a genuine revert - a
+// target detached from the document in one task and reattached (mutated
+// content fully intact) in a later one reads exactly the same way for one
+// instant. Reporting that instant used to discard a mutation the suite
+// would genuinely have caught. Because every change is now reported (see
+// above) and the ack side always keeps only the LATEST reading, a
+// reattachment reported shortly after a detach naturally overwrites the
+// premature false with the true, healed state - no fixed wait to get wrong
+// in either direction, and no evidence thrown away either way.
 //
 // Fix (frame attribution): `addInitScript` runs in every frame a context
 // creates, including iframes. `window.top === window.self` is available
@@ -80,40 +119,61 @@ export function mutationScript(mutation, selector, reportFnName = '__flakeproofM
       }
     };
     const watch = (applied) => {
-      let reported = false;
       let observer = null;
-      const reportOnce = (survived) => {
-        if (reported) return;
-        reported = true;
-        try { if (observer) observer.disconnect(); } catch {}
-        report(applied, survived, true);
-      };
-      const check = () => {
-        let survived = null;
+      let torn = false; // the page's own teardown has already been reported
+      const checkNow = () => {
         try {
-          survived = verifyFn(selector) === true;
+          return verifyFn(selector) === true;
         } catch {
-          survived = null;
+          return null;
         }
-        // Only a definite "it got undone" is worth reacting to immediately;
-        // a continuing true is reported by the bounded fallback below, if
-        // the page lives long enough for it to fire.
-        if (survived === false) reportOnce(false);
+      };
+      const onTeardown = () => {
+        if (torn) return;
+        torn = true;
+        try { if (observer) observer.disconnect(); } catch {}
+        try { window.removeEventListener('pagehide', onTeardown); } catch {}
+        try { window.removeEventListener('beforeunload', onTeardown); } catch {}
+        try { document.removeEventListener('visibilitychange', onVisibilityChange); } catch {}
+        report(applied, checkNow(), true);
+      };
+      const onVisibilityChange = () => {
+        if (document.visibilityState === 'hidden') onTeardown();
+      };
+      // Every observed change is reported immediately, in EITHER direction -
+      // see the header comment for why this, rather than a confirmation
+      // delay, is what makes both the late-revert and the async-re-parent
+      // fixes correct at the same time: reacting instantly wins the race
+      // against a fast test's page teardown, and a later corrective report
+      // (the target reattached, content intact) simply overwrites the
+      // earlier one on the ack side (src/blindspots/ack.js), never the
+      // other way around.
+      const onMutation = () => {
+        if (torn) return;
+        const survived = checkNow();
+        if (survived === true || survived === false) report(applied, survived, true);
       };
       const root = document.body || document.documentElement;
       if (root && typeof MutationObserver === 'function') {
-        observer = new MutationObserver(check);
+        observer = new MutationObserver(onMutation);
         observer.observe(root, { childList: true, subtree: true, attributes: true, characterData: true });
       }
+      // An early reading for the common positive case (nothing has reverted
+      // yet): useful context while the page is still running, but - unlike
+      // the previous version - never treated as conclusive by anything
+      // reading it back, and never stops onMutation or the teardown hooks
+      // from reporting whatever comes after it.
       setTimeout(() => {
-        let survived = null;
-        try {
-          survived = verifyFn(selector) === true;
-        } catch {
-          survived = null;
-        }
-        reportOnce(survived);
+        if (torn) return;
+        report(applied, checkNow(), true);
       }, ${SETTLE_MS});
+      // As late as the browser gives this script any chance to run: report
+      // the true final state right as the page actually starts tearing
+      // down, so a revert with no further DOM mutation to react to is still
+      // caught if it happens before the page is gone.
+      try { window.addEventListener('pagehide', onTeardown, { once: true }); } catch {}
+      try { window.addEventListener('beforeunload', onTeardown, { once: true }); } catch {}
+      try { document.addEventListener('visibilitychange', onVisibilityChange); } catch {}
     };
     const attempt = (deadline) => {
       const exists = !!document.querySelector(selector);

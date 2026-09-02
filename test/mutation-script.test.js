@@ -188,6 +188,80 @@ test('mutationScript reports survived false when the page rewrites the mutated n
   }
 });
 
+// Regression for the second review round: the 50ms hydration fixture above
+// passes even with the MutationObserver patched out entirely, because it is
+// well inside SETTLE_MS (300ms) and the bounded settle fallback alone would
+// catch it. This fixture reverts at 900ms, past that window, so only the
+// observer (kept alive for the page's whole lifetime, not disconnected
+// after the first report) can catch it - genuinely pinning the fix, not
+// just re-testing the fallback.
+test('mutationScript keeps watching past SETTLE_MS and catches a revert that lands well after it (observer pinned, not the settle fallback)', async () => {
+  let server = null;
+  let browser = null;
+  try {
+    server = await startFixtureServer({ root: blindspotsPageRoot });
+    browser = await chromium.launch();
+    const context = await browser.newContext();
+    const calls = [];
+    await context.exposeFunction('__flakeproofMutationApplied', (applied, survived, frame, found) => calls.push({ applied, survived, frame, found, at: Date.now() }));
+    await context.addInitScript(mutationScript(changeText, '#header-title'));
+    const page = await context.newPage();
+    const start = Date.now();
+    await page.goto(`${server.url}hydrate-late.html`);
+    await page.waitForTimeout(1600);
+    const settled = calls.filter((c) => c.survived !== null);
+    assert.ok(settled.length >= 2, 'both the early settle reading and the later revert must have been reported');
+    // The early settle reading (~300ms) must say the mutation still held -
+    // proving the settle fallback ALONE would have gotten this wrong.
+    const early = settled.find((c) => c.at - start < 700);
+    assert.ok(early, JSON.stringify(settled));
+    assert.equal(early.survived, true, 'at 300ms the page has not reverted yet');
+    // The later report - only possible because the observer was never
+    // disconnected - must say it reverted.
+    const late = settled.at(-1);
+    assert.equal(late.survived, false, 'the observer must catch the 900ms revert; the old code would have stopped watching after the early report');
+  } finally {
+    await browser?.close();
+    await server?.close();
+  }
+});
+
+// Fix (async re-parent false revert): a target detached in one task and
+// reattached (content fully intact) in a later one must never be discarded
+// as a genuine revert. mutationScript itself now reports every observed
+// change - including the transient false the moment the target detaches -
+// on purpose (see its header comment): that instant reading is real, and
+// hiding it here would just move the dishonesty from "reported wrong" to
+// "silently withheld". What must never happen is that transient reading
+// being the LAST word: the reattachment must produce its own, later,
+// corrective report (this is exactly what lets src/blindspots/ack.js's
+// dedicated, overwritten survived file - read by readMutationAck - end up
+// with the correct final answer without needing to guess which of two
+// conflicting reports to trust).
+test('mutationScript reports a transient detach as it happens, then corrects itself once the target reattaches', async () => {
+  let server = null;
+  let browser = null;
+  try {
+    server = await startFixtureServer({ root: blindspotsPageRoot });
+    browser = await chromium.launch();
+    const context = await browser.newContext();
+    const calls = [];
+    await context.exposeFunction('__flakeproofMutationApplied', (applied, survived, frame, found) => calls.push({ applied, survived, frame, found }));
+    await context.addInitScript(mutationScript(changeText, '#header-title'));
+    const page = await context.newPage();
+    await page.goto(`${server.url}reparent.html`);
+    await page.waitForTimeout(800);
+    const settled = calls.filter((c) => c.survived !== null);
+    assert.ok(settled.length > 0, 'a settle report must have fired');
+    assert.ok(settled.some((c) => c.survived === false), 'the transient detach must have been reported honestly, not hidden');
+    assert.equal(settled.at(-1).survived, true, 'the LAST word must be the corrected, healed state once the target reattaches');
+    assert.equal(await page.locator('#header-title').textContent(), 'FLAKEPROOF-CHANGED', 'the mutation is genuinely still there once the dust settles');
+  } finally {
+    await browser?.close();
+    await server?.close();
+  }
+});
+
 test('mutationScript attributes a report to the frame it actually ran in', async () => {
   let server = null;
   let browser = null;

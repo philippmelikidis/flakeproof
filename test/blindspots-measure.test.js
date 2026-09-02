@@ -46,7 +46,13 @@ const key = mutationId + '::' + selector;
 const cfg = behavior[key] || { applies: true, red: false };
 if (!noAck && ackDir) {
   fs.mkdirSync(ackDir, { recursive: true });
-  fs.writeFileSync(path.join(ackDir, 'a.json'), JSON.stringify({ installed: true, applied: !!cfg.applies }));
+  // This fake suite does not model reverts at all - whenever the mutation
+  // applies, it is reported as having survived for the page's whole
+  // lifetime, so these tests keep exercising the applied/red-detection
+  // logic they were written for rather than the separate survival signal
+  // (see test/blindspots-measure-hardening.test.js and blindspots-e2e.test.js
+  // for that).
+  fs.writeFileSync(path.join(ackDir, 'a.json'), JSON.stringify({ installed: true, applied: !!cfg.applies, survived: cfg.applies ? true : null }));
 }
 if (cfg.red) { writeRed('noticed ' + key); process.exit(1); }
 writeGreen();
