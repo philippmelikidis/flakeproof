@@ -175,6 +175,7 @@ export async function triage(opts) {
     const candidates = candidatesFor(baseline.tree, resolved.path);
     if (candidates.length === 0) {
       notes.push('no provable selector candidates found for the anchor element');
+      step('Generated selector candidates', 'none could be verified for this element', false);
     } else if (opts.currentUrl && classification.match?.path) {
       try {
         recommendation = await proveCandidates(opts.currentUrl, classification.match.path, candidates);
@@ -182,6 +183,7 @@ export async function triage(opts) {
       } catch (err) {
         recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null }));
         notes.push('could not prove candidates against the current build: ' + err.message);
+        step('Proved candidates in a real browser', 'failed: ' + err.message, false);
       }
     } else {
       recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null }));
