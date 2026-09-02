@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, readFile, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFixtureServer } from './helpers/serve.js';
@@ -98,6 +98,42 @@ test('a missing desktop opener does not fail a run that produced a verdict', asy
     await run(process.execPath, ['bin/flakeproof.js', 'triage', '--baseline', baseline, '--error-file', errFile, '--current', baseline, '--out', outFile, '--open'], { env: { ...process.env, PATH: '' } });
     const html = await readFile(outFile, 'utf8');
     assert.ok(html.startsWith('<!doctype html>'), 'the report is still written');
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('baseline subcommand writes to the default location', async () => {
+  const server = await startFixtureServer();
+  const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+  try {
+    await run('node', [join(process.cwd(), 'bin/flakeproof.js'), 'baseline', server.url], { cwd: dir });
+    const snap = JSON.parse(await readFile(join(dir, '.flakeproof', 'baseline.json'), 'utf8'));
+    assert.equal(snap.tree.tag, 'html');
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run subcommand triages a red suite and writes a summary', async () => {
+  const server = await startFixtureServer();
+  const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+  try {
+    await run('node', [join(process.cwd(), 'bin/flakeproof.js'), 'baseline', server.url], { cwd: dir });
+    await copyFile(join(process.cwd(), 'test/fixtures/runner/playwright-results.json'), join(dir, 'results.json'));
+    const outFile = join(dir, 'run.html');
+    await run('node', [
+      join(process.cwd(), 'bin/flakeproof.js'), 'run',
+      '--cmd', 'node -e "process.exit(1)"',
+      '--url', server.url,
+      '--results', 'results.json',
+      '--out', outFile,
+    ], { cwd: dir });
+    const html = await readFile(outFile, 'utf8');
+    assert.ok(html.startsWith('<!doctype html>'));
+    assert.ok(html.includes('failed tests'));
   } finally {
     await server.close();
     await rm(dir, { recursive: true, force: true });
