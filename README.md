@@ -163,6 +163,58 @@ Honesty rules this command will not bend on:
 
 What this tool cannot tell you: whether your assertions are *correct*, only whether they would notice a specific catalog of meaningful changes. A suite can score well here and still assert the wrong thing; blindspots only rules out one specific, common way of being wrong.
 
+## GitHub Action: the red-run gate
+
+`action.yml` at the repository root wraps `node bin/flakeproof.js run` as a reusable composite action: it runs your test command, triages whichever tests failed, posts (or updates) a markdown summary as a pull request comment, and uploads the full HTML report as a workflow artifact. This is the "Rollout" stage described in `docs/superpowers/specs/2026-08-18-e2e-triage-gate-design.md`: a PR comment first, no influence on the merge decision, before anything stricter is even considered.
+
+**Exit-code policy: the gate comments, it does not block, by default.** `blocking` defaults to `"false"`: whatever flakeproof concludes, the job stays green and the comment is the only signal. A gate that can block a merge on a wrong verdict is worse than no gate, and the design spec calls for adopting each rollout stage only once the previous one is unanimously trusted. Set `blocking: "true"` only once your team has actually built that trust. A genuinely broken setup (no test command, no baseline found anywhere) is different from a triage opinion and always fails the job, in every mode - flakeproof does not invent a baseline to work around a missing one.
+
+Minimal usage, with a baseline already committed to the repository at `.flakeproof/baseline.json`:
+
+```yaml
+name: flakeproof gate
+on: pull_request
+
+permissions:
+  pull-requests: write   # required so the action can post/update the PR comment
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: philippmelikidis/flakeproof@main
+        with:
+          test-command: npx playwright test
+          app-url: https://staging.your-app.example
+```
+
+If your baseline is produced by an earlier job and uploaded as a workflow artifact instead of committed to the repo, restore it by name:
+
+```yaml
+      - uses: philippmelikidis/flakeproof@main
+        with:
+          test-command: npx playwright test
+          app-url: https://staging.your-app.example
+          baseline-artifact-name: flakeproof-baseline
+```
+
+If neither a committed file nor a matching artifact provides a baseline at `baseline-path`, the action fails the step with the same actionable message the CLI gives for a missing baseline (see `run-and-report.js`'s `SetupError`), rather than guessing one.
+
+Inputs mirror `flakeproof.config.json` so a project that already has one passes almost nothing: `test-command`/`app-url`/`results-path`/`reader`/`baseline-path` all fall back to the config file's `cmd`/`url`/`results`/`reader`/`baseline` keys, and then to the same defaults the CLI uses. Other inputs: `working-directory`, `install-command` (default `npm ci`), `install-playwright-browsers` (default `true`), `node-version` (default `20`), `comment` (default `true`), `artifact-name` (default `flakeproof-report`), `blocking` (default `false`), `github-token` (default `github.token`).
+
+The comment is updated in place on every push to the pull request (matched by a hidden marker in the comment body), rather than piling up a new one each time, and it says plainly when flakeproof abstained - either because it could not tell which tests failed at all, or because individual verdicts came back `unclear`, `no-anchor` or `nondeterministic` - instead of letting silence read as a clean bill of health.
+
+### Verified locally vs. not verified
+
+This action has not been run on GitHub's own infrastructure as part of this change (that requires a live PR and a running app to gate). What was checked without that:
+
+- `action/scripts/resolve-inputs.js`, `run-and-report.js` and `post-comment.js` are unit-tested directly (`test/action-resolve-inputs.test.js`, `test/action-run-and-report.test.js`, `test/action-post-comment.test.js`), including the GitHub REST calls in `post-comment.js` against an injected fake `fetch`.
+- `test/action-yaml.test.js` structurally validates `action.yml`: required composite-action keys are present, every `${{ inputs.X }}` and `${{ steps.ID.outputs.Y }}` expression resolves to something actually declared, every `run:` step declares `shell:`, every `uses:` is pinned to a tag, and every script path the action invokes exists on disk. This is a purpose-built scanner for this file's shape, not a general yaml/schema validator.
+
+Not verified: the actual GitHub Actions runtime behaviour (composite `if:` conditions, `actions/download-artifact` and `actions/upload-artifact` outputs like `artifact-url`, how `working-directory` interacts with `github.action_path` when this action is consumed from a different repository, and the pull-request comment round-trip against the real GitHub API).
+
 ## Status
 
 Phase 1 (red triage MVP) and phase 2 (temporal lane, blindspots sensitivity scoring) are complete. Phase 0 established the measurement foundation: across 37 mutated fixture and live-site cases the classifier produced 0 misclassifications, with every abstention documented. Full numbers in `spikes/phase0-report.md`, reproducible via `npm run spike`.
@@ -183,17 +235,21 @@ Tests run against a local fixture page, no network needed. The suite includes en
 ## Repository layout
 
 ```
-bin/flakeproof.js   CLI entry point (snapshot, triage, run, blindspots)
-src/probe/          code injected into the page: DOM serializer, mutation catalogs, temporal delay, mutation script
-src/triage/         anchor extraction, element matching, classification, candidates, proving, engine
-src/adapters/       one small adapter per test framework (Robot Framework today)
-src/inject/         opt-in helpers for user test suites (Playwright temporal + mutation injection)
-src/runner/         runs the user's suite and reads its result file (Playwright json, Robot output.xml)
-src/blindspots/     blindspots orchestration: mutation ack reading, scoring, report rendering
-src/snapshot.js     baseline capture (serialized tree plus raw html)
-src/report.js       markdown report renderer
-test/               node:test suites, fixture page and build variants, captured real error fixtures
-spikes/             phase 0 measurement scripts and report
-examples/           Robot Framework suite against a real website
-docs/superpowers/   design spec and implementation plans
+bin/flakeproof.js     CLI entry point (snapshot, triage, run, blindspots)
+src/probe/            code injected into the page: DOM serializer, mutation catalogs, temporal delay, mutation script
+src/triage/           anchor extraction, element matching, classification, candidates, proving, engine
+src/adapters/         one small adapter per test framework (Robot Framework today)
+src/inject/           opt-in helpers for user test suites (Playwright temporal + mutation injection)
+src/runner/           runs the user's suite and reads its result file (Playwright json, Robot output.xml)
+src/blindspots/       blindspots orchestration: mutation ack reading, scoring, report rendering
+src/snapshot.js       baseline capture (serialized tree plus raw html)
+src/report.js         markdown report renderer
+action.yml            composite GitHub Action wrapping "flakeproof run" as a PR-comment gate
+action/scripts/       scripts the action calls: resolve inputs, run once and render both reports, upsert the PR comment
+.github/workflows/    this repository's own CI (lint + test)
+test/                 node:test suites, fixture page and build variants, captured real error fixtures
+spikes/               phase 0 measurement scripts and report
+examples/             Robot Framework suite against a real website
+docs/superpowers/     design spec and implementation plans
+docs/publishing.md    checklist for publishing to npm (not done yet, see "Installation")
 ```

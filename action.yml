@@ -1,0 +1,181 @@
+name: 'flakeproof triage gate'
+description: 'Runs your end-to-end suite, triages any red test with flakeproof, comments the verdict on the pull request, and uploads the full HTML report as an artifact. Comments by default, does not block the build.'
+author: 'flakeproof'
+
+inputs:
+  working-directory:
+    description: 'Directory containing flakeproof.config.json and the test suite to run.'
+    required: false
+    default: '.'
+  test-command:
+    description: 'Command that runs your test suite. Defaults to "cmd" in flakeproof.config.json.'
+    required: false
+    default: ''
+  app-url:
+    description: 'URL of the running app under test. Defaults to "url" in flakeproof.config.json.'
+    required: false
+    default: ''
+  results-path:
+    description: 'Path to the test reporter output file (Playwright json or Robot Framework output.xml). Defaults to "results" in flakeproof.config.json, or results.json.'
+    required: false
+    default: ''
+  reader:
+    description: 'Result reader: playwright or robot. Defaults to "reader" in flakeproof.config.json, or playwright.'
+    required: false
+    default: ''
+  baseline-path:
+    description: 'Path to the baseline snapshot. Defaults to "baseline" in flakeproof.config.json, or .flakeproof/baseline.json.'
+    required: false
+    default: ''
+  baseline-artifact-name:
+    description: >
+      Name of a workflow artifact to download and restore to baseline-path before running, for a
+      baseline produced by an earlier CI job instead of committed to the repository. Leave empty
+      to use a baseline already present at baseline-path (checked out with the repository).
+    required: false
+    default: ''
+  install-command:
+    description: 'Command to install dependencies before running. Set to the empty string to skip.'
+    required: false
+    default: 'npm ci'
+  install-playwright-browsers:
+    description: 'Whether to install the Playwright chromium browser before running. Set to "false" if your own install-command already does this.'
+    required: false
+    default: 'true'
+  node-version:
+    description: 'Node.js version to set up.'
+    required: false
+    default: '20'
+  comment:
+    description: 'Whether to post or update a pull request comment with the markdown summary.'
+    required: false
+    default: 'true'
+  artifact-name:
+    description: 'Name used for the uploaded HTML report artifact.'
+    required: false
+    default: 'flakeproof-report'
+  blocking:
+    description: >
+      Whether a non-zero flakeproof exit code fails this step (and therefore the job/check).
+      Defaults to "false": flakeproof always comments, it never blocks the build on its own
+      verdict. The project's own design calls for a staged rollout - comment-only first, then a
+      ratchet, then a hard gate, each stage adopted only once the previous one is unanimously
+      trusted (see docs/superpowers/specs/2026-08-18-e2e-triage-gate-design.md) - and a gate that
+      can block a merge on a wrong verdict is worse than no gate at all. Only set this to "true"
+      once the comment-only stage has earned that trust on this repository. Note this reflects
+      flakeproof's own exit-code policy (1 when it could not determine which tests failed at
+      all), not a judgment of "real bug vs fragile test" - the tool does not yet expose a
+      verdict-specific exit code to gate on.
+    required: false
+    default: 'false'
+  github-token:
+    description: 'Token used to read and write the pull request comment. Needs pull-requests: write.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  summary:
+    description: 'One-line summary of the triage outcome.'
+    value: ${{ steps.run.outputs.summary }}
+  exit-code:
+    description: 'flakeproof''s own exit code (0 or 1), reported even when blocking is false.'
+    value: ${{ steps.run.outputs.exit-code }}
+  blind:
+    description: '"true" when flakeproof could not determine which tests failed.'
+    value: ${{ steps.run.outputs.blind }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install flakeproof dependencies
+      if: inputs.install-command != ''
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: ${{ inputs.install-command }}
+
+    - name: Install target project dependencies
+      if: inputs.install-command != '' && inputs.working-directory != github.action_path
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ inputs.install-command }}
+
+    - name: Install Playwright browsers
+      if: inputs.install-playwright-browsers == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx --yes playwright install --with-deps chromium
+
+    - name: Resolve inputs
+      id: resolve
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        FLAKEPROOF_WORKDIR: ${{ inputs.working-directory }}
+        INPUT_TEST_COMMAND: ${{ inputs.test-command }}
+        INPUT_APP_URL: ${{ inputs.app-url }}
+        INPUT_RESULTS_PATH: ${{ inputs.results-path }}
+        INPUT_READER: ${{ inputs.reader }}
+        INPUT_BASELINE_PATH: ${{ inputs.baseline-path }}
+      run: node ${{ github.action_path }}/action/scripts/resolve-inputs.js
+
+    - name: Restore baseline artifact
+      if: inputs.baseline-artifact-name != ''
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.baseline-artifact-name }}
+        path: ${{ steps.resolve.outputs.baseline-dir }}
+
+    - name: Run test suite and triage failures
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        FLAKEPROOF_WORKDIR: ${{ inputs.working-directory }}
+        FLAKEPROOF_SUMMARY_PATH: ${{ github.action_path }}/flakeproof-summary.md
+        FLAKEPROOF_HTML_PATH: ${{ github.action_path }}/flakeproof-report.html
+        INPUT_TEST_COMMAND: ${{ inputs.test-command }}
+        INPUT_APP_URL: ${{ inputs.app-url }}
+        INPUT_RESULTS_PATH: ${{ inputs.results-path }}
+        INPUT_READER: ${{ inputs.reader }}
+        INPUT_BASELINE_PATH: ${{ inputs.baseline-path }}
+      run: |
+        set +e
+        node ${{ github.action_path }}/action/scripts/run-and-report.js
+        code=$?
+        set -e
+        # Exit code 2 means the gate itself is misconfigured (bad inputs, no
+        # baseline found) - not a triage opinion, so it always fails the job,
+        # independent of the "blocking" input. See action/scripts/run-and-report.js.
+        if [ "$code" -eq 2 ]; then
+          echo "::error::flakeproof action: gate misconfigured, see the log above. This always fails the job, independent of the blocking input."
+          exit $code
+        fi
+        if [ "${{ inputs.blocking }}" = "true" ]; then
+          exit $code
+        fi
+        exit 0
+
+    - name: Upload HTML report artifact
+      id: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ github.action_path }}/flakeproof-report.html
+        if-no-files-found: warn
+
+    - name: Comment on pull request
+      if: inputs.comment == 'true'
+      shell: bash
+      env:
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        FLAKEPROOF_SUMMARY_PATH: ${{ github.action_path }}/flakeproof-summary.md
+        FLAKEPROOF_BLIND: ${{ steps.run.outputs.blind }}
+        FLAKEPROOF_FAILURES: ${{ steps.run.outputs.failures }}
+        FLAKEPROOF_VERDICT_COUNTS: ${{ steps.run.outputs.verdict-counts }}
+        FLAKEPROOF_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+      run: node ${{ github.action_path }}/action/scripts/post-comment.js
