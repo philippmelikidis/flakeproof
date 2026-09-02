@@ -32,7 +32,8 @@ test('the report is a self-contained html document', () => {
   assert.ok(html.startsWith('<!doctype html>'), 'must be a full document');
   assert.ok(html.includes('<style>'), 'css must be inline');
   assert.ok(!/<script/i.test(html), 'no scripts allowed');
-  assert.ok(!/https?:\/\//.test(html), 'no external resources allowed');
+  assert.ok(!/\s(?:src|href)\s*=\s*["']?https?:/i.test(html), 'no external resource may be loaded');
+  assert.ok(!/@import/i.test(html), 'no css imports allowed');
 });
 
 test('the report shows verdict, anchor, evidence and every recommendation', () => {
@@ -66,6 +67,19 @@ test('page content is escaped, never injected as live markup', () => {
   const html = renderHtmlReport(evil);
   assert.ok(!html.includes('<img src=x'), 'raw markup from the page must be escaped');
   assert.ok(html.includes('&lt;img'), 'the snippet is shown as text');
+});
+
+test('an absolute href in the page data does not break self-containment', () => {
+  const withAbsolute = {
+    ...fragile,
+    detail: {
+      ...fragile.detail,
+      anchorBefore: { ...fragile.detail.anchorBefore, attrs: { href: 'https://example.com/pricing' } },
+    },
+  };
+  const html = renderHtmlReport(withAbsolute);
+  assert.ok(html.includes('example.com/pricing'), 'the url is shown to the reader as text');
+  assert.ok(!/\s(?:src|href)\s*=\s*["']?https?:/i.test(html), 'but never as a loaded resource');
 });
 
 test('a verdict without detail still renders every mandatory section', () => {
