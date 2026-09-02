@@ -101,19 +101,51 @@ test('text containing a double quote is not offered (fail closed)', () => {
   assert.ok(!cands.some((c) => c.kind === 'text' || c.kind === 'role'));
 });
 
-test('role candidate is withheld for a node with element children and no explicit name', () => {
+test('a nested <a>Contact <b>us</b></a> now produces a role candidate named from its whole subtree', () => {
+  // Before the accessible-name fix, an element with children but no
+  // explicit aria-label had its role candidate withheld entirely, because
+  // the tree-side "name" was only the element's own text ('Contact') and
+  // could not be trusted to match what Playwright computes from the whole
+  // subtree ('Contact us'). The serializer now computes exactly that
+  // subtree-derived name, so the tree-side value already agrees with
+  // Playwright and the role candidate can be offered.
   const t = withPaths(
     n('html', {}, [
       n('body', {}, [
-        n('a', { text: 'Contact us', role: 'link', attrs: { href: '/contact/' } }, [
-          n('span', { text: 'arrow-icon' }),
+        n('a', { text: 'Contact', name: 'Contact us', role: 'link', attrs: { href: '/contact/' } }, [
+          n('b', { text: 'us' }),
         ]),
       ]),
     ]),
   );
   const cands = candidatesFor(t, [0, 0]);
-  assert.ok(!cands.some((c) => c.kind === 'role'), 'accessible name cannot be approximated from own text when element children exist');
-  assert.ok(cands.some((c) => c.kind === 'text'), 'own-text candidate is unaffected and stays since the text is unique');
+  assert.ok(
+    cands.some((c) => c.kind === 'role' && c.selector === 'role=link[name="Contact us"]'),
+    'role candidate must use the serializer-computed subtree name, matching what Playwright computes',
+  );
+});
+
+test('role candidate is withheld when the element carries aria-labelledby', () => {
+  // aria-labelledby names an element from a DIFFERENT element's content,
+  // which the serializer cannot resolve per-element. Whatever "name" ended
+  // up in the tree for this node is therefore not trustworthy as the real
+  // accessible name, so the role candidate must not be offered rather than
+  // guessed.
+  const t = withPaths(
+    n('html', {}, [
+      n('body', {}, [
+        n('span', { id: 'external-label', text: 'External label' }),
+        n('a', {
+          text: 'Contact',
+          name: 'Contact', // what the serializer fell back to; not the real name
+          role: 'link',
+          attrs: { href: '/contact/', 'aria-labelledby': 'external-label' },
+        }),
+      ]),
+    ]),
+  );
+  const cands = candidatesFor(t, [0, 1]);
+  assert.ok(!cands.some((c) => c.kind === 'role'), 'name is unverifiable when aria-labelledby is present, so never guess');
 });
 
 test('an anonymous element gets a container-text candidate from its unique child text', () => {

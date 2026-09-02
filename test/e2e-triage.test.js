@@ -67,7 +67,17 @@ test('changed text against the semantic build is a real change', async () => {
   }
 });
 
-test('removed weak-identity element yields an honest unclear', async () => {
+test('a removed element with a subtree-derived name is a confident real change, not a hedge', async () => {
+  // Before the accessible-name fix, a bare <li> wrapping a link had no own
+  // text and no explicit aria-label, so its computed "name" was blank and
+  // it counted as a "weak identity" element: with no id/text/name/href of
+  // its own, the classifier could not tell a rename from a removal and
+  // hedged to 'unclear'. Now that the name is the whole subtree's text
+  // ("Solutions"), the li has a real identity again. Page v3 removes this
+  // li outright (Products/Company/Careers remain, Solutions does not), so
+  // there is no other element anywhere with that name for it to have been
+  // renamed into; the classifier can now say 'real-change' honestly instead
+  // of hedging.
   let dir = null;
   let v3 = null;
   try {
@@ -79,7 +89,7 @@ test('removed weak-identity element yields an honest unclear', async () => {
       baselinePath,
       currentUrl: v3.url,
     });
-    assert.equal(result.verdict, 'unclear');
+    assert.equal(result.verdict, 'real-change');
   } finally {
     await v3?.close();
     if (dir) await rm(dir, { recursive: true, force: true });

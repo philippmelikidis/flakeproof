@@ -4,11 +4,25 @@ export function serializeDom(anchorSelector) {
   const MAX_TEXT = 120;
   const MAX_HTML = 400;
 
+  // header/footer are unconditional landmarks only at the page level; inside
+  // sectioning content they are scoped to that section and have no implicit
+  // role (HTML-AAM). Handled separately from the flat map below because the
+  // answer depends on ancestry, not just the tag name.
   const IMPLICIT_ROLES = {
-    a: 'link', button: 'button', nav: 'navigation', header: 'banner',
-    footer: 'contentinfo', main: 'main', ul: 'list', ol: 'list',
+    a: 'link', button: 'button', nav: 'navigation',
+    main: 'main', ul: 'list', ol: 'list',
     li: 'listitem', img: 'img', form: 'form', table: 'table',
   };
+  const SECTIONING_ANCESTORS = 'article, section, main, nav, aside';
+
+  function implicitRole(el) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'header' || tag === 'footer') {
+      if (el.closest(SECTIONING_ANCESTORS)) return '';
+      return tag === 'header' ? 'banner' : 'contentinfo';
+    }
+    return IMPLICIT_ROLES[tag] || '';
+  }
 
   function ownText(el) {
     let t = '';
@@ -18,13 +32,23 @@ export function serializeDom(anchorSelector) {
     return t.trim().replace(/\s+/g, ' ').slice(0, MAX_TEXT);
   }
 
+  // Mirrors the parts of the accname spec that matter for triage: an
+  // explicit aria-label wins outright; img/area fall back to alt (they have
+  // no meaningful subtree); everything else is named from its whole
+  // subtree's text, matching how Playwright computes the accessible name
+  // for elements like `<a>Contact <b>us</b></a>` ("Contact us", not
+  // "Contact"). aria-labelledby is intentionally not handled here: it names
+  // an element from a DIFFERENT element's content, which this per-element
+  // function cannot resolve. Callers that need to know accessible name
+  // cannot suppress that case by checking for the attribute.
   function accessibleName(el) {
-    return (
-      el.getAttribute('aria-label') ||
-      el.getAttribute('alt') ||
-      el.getAttribute('title') ||
-      ''
-    ).trim().slice(0, MAX_TEXT);
+    const ariaLabel = (el.getAttribute('aria-label') || '').trim();
+    if (ariaLabel) return ariaLabel.slice(0, MAX_TEXT);
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'img' || tag === 'area') {
+      return (el.getAttribute('alt') || '').trim().slice(0, MAX_TEXT);
+    }
+    return (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, MAX_TEXT);
   }
 
   function serialize(el, path) {
@@ -46,7 +70,7 @@ export function serializeDom(anchorSelector) {
       attrs,
       text: ownText(el),
       name: accessibleName(el),
-      role: el.getAttribute('role') || IMPLICIT_ROLES[el.tagName.toLowerCase()] || '',
+      role: el.getAttribute('role') || implicitRole(el) || '',
       html: el.outerHTML.length > MAX_HTML ? el.outerHTML.slice(0, MAX_HTML) + ' ...' : el.outerHTML,
       path,
       children,
