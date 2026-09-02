@@ -172,11 +172,25 @@ export async function triage(opts) {
           temporal = await temporalProbe(opts.rerunCommand, target);
           step('Provoked a delay on the anchor', temporal.reproduced ? 'reproduced at ' + temporal.delay + ' ms' : 'no reproduction', temporal.reproduced);
           if (temporal.reproduced) {
-            notes.push(`fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`);
+            const n = temporal.matched;
+            notes.push(
+              `fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late (the delay rule ` +
+                `matched ${n} element${n === 1 ? '' : 's'}); likely a missing wait`,
+            );
           } else if (temporal.control && temporal.control.failures > 0) {
             notes.push('temporal probe aborted: the control run without any delay already failed, so the baseline is too unstable to attribute failures to timing');
           } else if (temporal.injected === false) {
             notes.push('the inject wrapper never acknowledged the delay; install withTemporal from flakeproof/inject in the suite before trusting any timing verdict');
+          } else if (temporal.matched === 0) {
+            notes.push(
+              `the delay rule matched no element for "${target}"; timing was never actually tested, so this is ` +
+                'not evidence against a timing cause',
+            );
+          } else if (temporal.matched > 0) {
+            notes.push(
+              `no reproduction: the delay rule matched ${temporal.matched} element(s) on every round but the ` +
+                'test still passed; timing is unlikely to be the cause',
+            );
           } else {
             notes.push('no reproduction: the delay style was installed on every round, but whether it affected the anchor is unverified; timing remains unlikely but not excluded');
           }

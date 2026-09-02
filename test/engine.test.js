@@ -206,7 +206,7 @@ test('temporal probe turns a green-on-rerun failure into a reproducible finding'
       script,
       'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
         'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
-        'if(ms>0&&ack)fs.writeFileSync(ack,"injected");' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:true,count:1}));' +
         'process.exit(ms>=500?1:0);',
     );
     const result = await triage({
@@ -219,7 +219,69 @@ test('temporal probe turns a green-on-rerun failure into a reproducible finding'
     assert.equal(result.temporal.reproduced, true);
     assert.equal(result.temporal.delay, 500);
     assert.equal(result.temporal.injected, true);
+    assert.equal(result.temporal.matched, 1);
     assert.ok(result.notes.some((note) => note.includes('likely a missing wait')));
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a delay that matches nothing is named, not mistaken for a negative timing verdict', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'matches-nothing.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:true,count:0}));' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, false);
+    assert.equal(result.temporal.injected, true);
+    assert.equal(result.temporal.matched, 0);
+    assert.ok(result.notes.some((note) => note.includes('matched no element')), JSON.stringify(result.notes));
+    assert.ok(!result.notes.some((note) => note.includes('likely a missing wait')));
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('an old-format ack keeps the weakened wording rather than claiming a proven match', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'old-format.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        // Old wrapper version: acknowledges installation but never reports a count.
+        'if(ms>0&&ack)fs.writeFileSync(ack,"injected");' +
+        'process.exit(0);', // never fails deterministically, so the loop is exhausted
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, false);
+    assert.equal(result.temporal.injected, true);
+    assert.equal(result.temporal.matched, null);
+    assert.ok(
+      result.notes.some((note) => note.includes('unverified') && note.includes('unlikely but not excluded')),
+      JSON.stringify(result.notes),
+    );
   } finally {
     if (dir) await rm(dir, { recursive: true, force: true });
   }
