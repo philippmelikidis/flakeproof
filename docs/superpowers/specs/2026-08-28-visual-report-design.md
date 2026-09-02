@@ -76,7 +76,7 @@ Ressourcen, keine Skripte, offline lesbar und an einen Pull Request anhängbar.
    erzeugt, im Browser gegen Mutationen bewiesen. Jeder Schritt mit Ergebnis.
 6. **Empfehlungen.** Gerankte Karten: Selektor, Art, Eindeutigkeit und der Beweis
    in lesbarer Form ("übersteht: Klasse umbenannt ja, Wrapper ja, verschoben
-   nein — 4 von 5").
+   nein, 4 von 5").
 7. **Timing** (nur bei `nondeterministic`): die geprüften Verzögerungen als
    Tabelle plus der Reproduktionssatz.
 
