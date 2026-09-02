@@ -17,7 +17,7 @@ export async function runSuite(opts) {
 
   const read = READERS[opts.reader];
   if (!read) {
-    return { ran: true, exitCode: run.exitCode, failures: 0, results: [], notes: [`unknown result reader: ${opts.reader}`] };
+    return { ran: true, exitCode: run.exitCode, failures: 0, results: [], blind: true, notes: [`unknown result reader: ${opts.reader}`] };
   }
 
   let failures;
@@ -27,24 +27,32 @@ export async function runSuite(opts) {
     // Never treat an unreadable result file as a green run: that would turn
     // a broken setup into a silent all-clear.
     notes.push(`could not read the test results at ${opts.resultsPath}: ${err.message}`);
-    return { ran: true, exitCode: run.exitCode, failures: 0, results: [], notes };
+    return { ran: true, exitCode: run.exitCode, failures: 0, results: [], blind: true, notes };
   }
 
   if (failures.length === 0) {
     if (run.exitCode !== 0) {
       notes.push('the test command failed but the result file lists no failed test; check the reporter configuration');
     }
-    return { ran: true, exitCode: run.exitCode, failures: 0, results: [], notes };
+    return { ran: true, exitCode: run.exitCode, failures: 0, results: [], blind: false, notes };
+  }
+
+  if (run.exitCode === 0) {
+    notes.push('the test command succeeded but the result file lists failed tests; it may be stale');
   }
 
   const results = [];
   for (const f of failures) {
-    const t = await triage({
-      errorText: f.message,
-      baselinePath: opts.baselinePath,
-      currentUrl: opts.url,
-    });
-    results.push({ testId: f.testId, triage: t });
+    try {
+      const t = await triage({
+        errorText: f.message,
+        baselinePath: opts.baselinePath,
+        currentUrl: opts.url,
+      });
+      results.push({ testId: f.testId, triage: t });
+    } catch (err) {
+      notes.push(`could not triage ${f.testId}: ${err.message}`);
+    }
   }
-  return { ran: true, exitCode: run.exitCode, failures: failures.length, results, notes };
+  return { ran: true, exitCode: run.exitCode, failures: failures.length, results, blind: false, notes };
 }

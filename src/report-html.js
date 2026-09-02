@@ -70,6 +70,7 @@ const CSS = `
   th { background: #f4f2ef; }
   .rank { font-weight: 600; }
 `;
+export const REPORT_CSS = CSS;
 
 function section(title, body) {
   return `<h2>${esc(title)}</h2>${body}`;

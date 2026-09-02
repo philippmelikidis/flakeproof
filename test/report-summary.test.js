@@ -52,3 +52,19 @@ test('a green run is reported as such', () => {
   const md = renderSummaryMarkdown({ ran: true, exitCode: 0, failures: 0, results: [], notes: [] });
   assert.ok(/no failed tests/i.test(md), md);
 });
+
+test('a blind run never renders as green', () => {
+  const blind = { ran: true, exitCode: 1, failures: 0, results: [], blind: true, notes: ['could not read the test results at results.json: ENOENT'] };
+  const md = renderSummaryMarkdown(blind);
+  assert.ok(/could not determine/i.test(md), md);
+  assert.ok(!/no failed tests to triage/i.test(md), 'must not claim a green run');
+  const html = renderSummaryHtml(blind);
+  assert.ok(/Could not determine/i.test(html));
+  assert.ok(!/>0 failed tests</.test(html));
+  assert.ok(html.includes('ENOENT'), 'the reason stays visible');
+});
+
+test('the html summary inlines the report stylesheet', () => {
+  const html = renderSummaryHtml(runResult);
+  assert.ok(html.includes('.step-ok'), 'the report stylesheet must be inlined');
+});

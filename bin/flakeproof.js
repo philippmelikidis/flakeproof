@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { captureSnapshot } from '../src/snapshot.js';
@@ -50,16 +51,23 @@ async function main() {
     const reader = values.reader ?? cfg.reader ?? 'playwright';
     const baselinePath = resolve(values.baseline ?? cfg.baseline ?? DEFAULT_BASELINE);
     if (!cmd) throw new Error('run needs a test command, from --cmd or flakeproof.config.json');
+    if (!url) throw new Error('run needs a url, from --url or flakeproof.config.json');
+    if (!['playwright', 'robot'].includes(reader)) throw new Error(`unknown reader "${reader}", expected playwright or robot`);
+    if (!existsSync(baselinePath)) {
+      throw new Error(`no baseline at ${baselinePath}. Record one first while the build is green: flakeproof baseline <url>`);
+    }
 
     const runResult = await runSuite({ cmd, url, baselinePath, resultsPath: resolve(results), reader });
     const wantsHtml = !!values.out && /\.html?$/i.test(values.out);
     const output = wantsHtml ? renderSummaryHtml(runResult) : renderSummaryMarkdown(runResult);
     if (values.out) {
+      await mkdir(dirname(resolve(values.out)), { recursive: true });
       await writeFile(values.out, output, 'utf8');
       console.log(`run report written to ${values.out}`);
     } else {
       console.log(output);
     }
+    if (runResult.blind) process.exitCode = 1;
     return;
   }
 

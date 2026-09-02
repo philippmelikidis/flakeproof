@@ -97,8 +97,11 @@ Honesty is a design rule here: `unclear` is a first-class verdict, abstaining be
                       (--error-file <file> | --robot-xml <output.xml>)
                       (--current-url <url> | --current <file.json>)
                       [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md|file.html>] [--open]
+    flakeproof baseline <url> [--out <file.json>]
+    flakeproof run [--cmd <command>] [--url <url>] [--results <file>] [--reader playwright|robot]
+                   [--baseline <file.json>] [--out <file.md|file.html>]
 
-Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or runtime errors.
+Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or runtime errors. For run, the exit code is 0 when the suite was triaged, whether or not tests failed, and 1 when the setup was unusable or a flag was missing.
 
 ### Catching missing waits
 

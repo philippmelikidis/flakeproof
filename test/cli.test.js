@@ -105,22 +105,26 @@ test('a missing desktop opener does not fail a run that produced a verdict', asy
 });
 
 test('baseline subcommand writes to the default location', async () => {
-  const server = await startFixtureServer();
-  const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+  let server = null;
+  let dir = null;
   try {
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
     await run('node', [join(process.cwd(), 'bin/flakeproof.js'), 'baseline', server.url], { cwd: dir });
     const snap = JSON.parse(await readFile(join(dir, '.flakeproof', 'baseline.json'), 'utf8'));
     assert.equal(snap.tree.tag, 'html');
   } finally {
-    await server.close();
-    await rm(dir, { recursive: true, force: true });
+    if (server) await server.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
 
 test('run subcommand triages a red suite and writes a summary', async () => {
-  const server = await startFixtureServer();
-  const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+  let server = null;
+  let dir = null;
   try {
+    server = await startFixtureServer();
+    dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
     await run('node', [join(process.cwd(), 'bin/flakeproof.js'), 'baseline', server.url], { cwd: dir });
     await copyFile(join(process.cwd(), 'test/fixtures/runner/playwright-results.json'), join(dir, 'results.json'));
     const outFile = join(dir, 'run.html');
@@ -133,9 +137,22 @@ test('run subcommand triages a red suite and writes a summary', async () => {
     ], { cwd: dir });
     const html = await readFile(outFile, 'utf8');
     assert.ok(html.startsWith('<!doctype html>'));
-    assert.ok(html.includes('failed tests'));
+    assert.ok(/\d+ failed tests?/.test(html), html);
   } finally {
-    await server.close();
-    await rm(dir, { recursive: true, force: true });
+    if (server) await server.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a missing baseline is named with the command that fixes it', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+    await assert.rejects(
+      () => run('node', [join(process.cwd(), 'bin/flakeproof.js'), 'run', '--cmd', 'node -e "process.exit(0)"', '--url', 'http://127.0.0.1:1', '--results', 'r.json'], { cwd: dir }),
+      (err) => /flakeproof baseline/.test(err.stderr ?? String(err)),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
   }
 });

@@ -13,7 +13,7 @@ test('a failing command is reported, not thrown', async () => {
   assert.equal(r.exitCode, 3);
 });
 
-test('a command that cannot start reports exit code -1 instead of throwing', async () => {
+test('a command that cannot start is reported, not thrown', async () => {
   const r = await runTests('definitely-not-a-command-fp-runner');
   assert.ok(r.exitCode !== 0, 'must not look successful');
 });
