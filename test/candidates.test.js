@@ -60,13 +60,16 @@ test('candidatesFor prefers id and testid, drops non-unique candidates', () => {
   assert.equal(cands[0].kind, 'id', 'id candidate ranks first');
 });
 
-test('candidatesFor falls back to a positional candidate for anonymous elements', () => {
+test('candidatesFor prefers container-text over positional for anonymous elements', () => {
   const t = tree();
   const liPath = [0, 0, 0, 0, 0]; // body > header > nav > ul > li(1)
   const cands = candidatesFor(t, liPath);
-  assert.ok(cands.some((c) => c.kind === 'container-text'), 'container-text candidate available');
-  assert.ok(cands.some((c) => c.kind === 'positional'), 'positional candidate available');
-  assert.equal(cands[0].kind, 'container-text', 'container-text ranks above positional');
+  assert.deepEqual(cands.map((c) => c.selector), [
+    '#main-nav li:has-text("Products")',
+    '#main-nav li:nth-child(1)',
+  ]);
+  assert.equal(cands[0].kind, 'container-text');
+  assert.equal(cands[1].kind, 'positional');
 });
 
 test('text and role candidates are generated for text-bearing elements', () => {

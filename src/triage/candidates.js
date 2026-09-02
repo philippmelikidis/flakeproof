@@ -142,7 +142,7 @@ export function candidatesFor(tree, path) {
     if (cand.kind === 'text') return countByText(tree, node.text) === 1;
     if (cand.kind === 'role') return countByRoleName(tree, node.role, node.name || node.text) === 1;
     if (cand.kind === 'container-text') {
-      const ct = node.children.map((c) => c.text).filter(Boolean)[0];
+      const ct = childTexts[0];
       return countByChildText(tree, node.tag, ct) === 1;
     }
     const hits = queryTree(tree, cand.selector);
