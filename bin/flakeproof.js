@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { readFile, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { captureSnapshot } from '../src/snapshot.js';
 import { triage } from '../src/triage/engine.js';
 import { renderReport } from '../src/report.js';
+import { renderHtmlReport } from '../src/report-html.js';
 
 const USAGE = `usage:
   flakeproof snapshot <url> [--anchor <selector>] --out <file.json>
   flakeproof triage --baseline <file.json> (--error-file <file> | --robot-xml <output.xml>)
                     (--current-url <url> | --current <file.json>)
-                    [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md>]`;
+                    [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md|file.html>] [--open]`;
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
@@ -42,6 +44,7 @@ async function main() {
         temporal: { type: 'boolean', default: false },
         json: { type: 'boolean', default: false },
         out: { type: 'string' },
+        open: { type: 'boolean', default: false },
       },
     });
     const currentSources = [values['current-url'], values.current].filter(Boolean).length;
@@ -56,11 +59,28 @@ async function main() {
       reruns: values.reruns ? Number(values.reruns) : undefined,
       temporal: values.temporal,
     });
-    const output = values.json ? JSON.stringify(result, null, 2) : renderReport(result);
+    const wantsHtml = !!values.out && /\.html?$/i.test(values.out);
+    const output = values.json
+      ? JSON.stringify(result, null, 2)
+      : wantsHtml
+        ? renderHtmlReport(result)
+        : renderReport(result);
     if (values.out) {
       await writeFile(values.out, output, 'utf8');
       console.log(`triage report written to ${values.out}`);
+      if (values.open) {
+        // Opening the report is a convenience. If no opener exists (minimal
+        // images, CI), the report is still written, so warn and carry on
+        // rather than failing a run that produced a verdict.
+        const child =
+          process.platform === 'win32'
+            ? spawn('cmd', ['/c', 'start', '', values.out], { stdio: 'ignore', detached: true })
+            : spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [values.out], { stdio: 'ignore', detached: true });
+        child.on('error', () => console.error(`could not open ${values.out} automatically`));
+        child.unref();
+      }
     } else {
+      if (values.open) console.error('--open needs --out');
       console.log(output);
     }
     return;

@@ -67,3 +67,22 @@ test('serializeDom emits explicit and implicit roles', async () => {
     await server?.close();
   }
 });
+
+test('serializeDom captures a bounded html snippet per node', async () => {
+  let server = null;
+  let browser = null;
+  try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(server.url);
+    const snap = await page.evaluate(serializeDom, null);
+    const cta = findNode(snap.tree, (x) => x.id === 'cta');
+    assert.ok(cta.html.startsWith('<a'), `expected an anchor snippet, got ${cta.html}`);
+    assert.ok(cta.html.includes('Contact us'));
+    assert.ok(cta.html.length <= 404, 'snippet must stay bounded');
+  } finally {
+    await browser?.close();
+    await server?.close();
+  }
+});

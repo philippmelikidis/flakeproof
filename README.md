@@ -64,6 +64,14 @@ Anchor: `li.css-1a2b3c` (timeout)
 | `#main-nav li:nth-child(1)` | positional | yes | 4/5 |
 ```
 
+### A report you can actually read
+
+The text report above is what lands in a CI log. For a human, ask for html instead:
+
+    node bin/flakeproof.js triage --baseline baseline.json --error-file error.txt --current-url https://your-app.example --out report.html --open
+
+That writes a single self-contained file (inline css, no scripts, no external resources) that spells out what happened: the verdict in plain words, the anchor element before and after with the difference highlighted, the evidence behind the verdict, every step flakeproof took, and all proven selector candidates ranked, not just the first one.
+
 Honesty is a design rule here: `unclear` is a first-class verdict, abstaining beats asserting, and a recommendation that failed proving is never shown as safe.
 
 ### CLI reference
@@ -72,7 +80,7 @@ Honesty is a design rule here: `unclear` is a first-class verdict, abstaining be
     flakeproof triage --baseline <file.json>
                       (--error-file <file> | --robot-xml <output.xml>)
                       (--current-url <url> | --current <file.json>)
-                      [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md>]
+                      [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md|file.html>] [--open]
 
 Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or runtime errors.
 
