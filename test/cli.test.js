@@ -85,3 +85,21 @@ test('cli writes a self-contained html report when the output ends in .html', as
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('a missing desktop opener does not fail a run that produced a verdict', async () => {
+  const server = await startFixtureServer();
+  const dir = await mkdtemp(join(tmpdir(), 'fp-cli-'));
+  try {
+    const baseline = join(dir, 'baseline.json');
+    const errFile = join(dir, 'error.txt');
+    const outFile = join(dir, 'report.html');
+    await writeFile(errFile, "TimeoutError: locator.waitFor: Timeout 2000ms exceeded.\nCall log:\n  - waiting for locator('#cta') to be visible");
+    await run(process.execPath, ['bin/flakeproof.js', 'snapshot', server.url, '--out', baseline]);
+    await run(process.execPath, ['bin/flakeproof.js', 'triage', '--baseline', baseline, '--error-file', errFile, '--current', baseline, '--out', outFile, '--open'], { env: { ...process.env, PATH: '' } });
+    const html = await readFile(outFile, 'utf8');
+    assert.ok(html.startsWith('<!doctype html>'), 'the report is still written');
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

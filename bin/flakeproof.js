@@ -70,7 +70,12 @@ async function main() {
       console.log(`triage report written to ${values.out}`);
       if (values.open) {
         const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-        spawn(opener, [values.out], { stdio: 'ignore', detached: true, shell: process.platform === 'win32' }).unref();
+        // Opening the report is a convenience. If no opener exists (minimal
+        // images, CI), the report is still written, so warn and carry on
+        // rather than failing a run that produced a verdict.
+        const child = spawn(opener, [values.out], { stdio: 'ignore', detached: true, shell: process.platform === 'win32' });
+        child.on('error', () => console.error(`could not open ${values.out} automatically`));
+        child.unref();
       }
     } else {
       console.log(output);
