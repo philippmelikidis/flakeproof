@@ -35,7 +35,7 @@ export function renderReport(r) {
     for (const t of r.temporal.tried) {
       const marker = r.temporal.reproduced && r.temporal.delay === t.delay ? ' (reproduces)' : '';
       const matched = typeof t.matched === 'number' ? `${t.matched} matched` : 'match count unknown';
-      const ruleLive = t.ruleLive ? 'rule live' : 'rule live: no/unknown';
+      const ruleLive = t.ruleLive === true ? 'rule live' : t.ruleLive === false ? 'rule not live' : 'rule live: unknown';
       lines.push(`- ${t.delay} ms: ${t.failures}/${t.runs} runs failed, ${matched}, ${ruleLive}${marker}`);
     }
   }

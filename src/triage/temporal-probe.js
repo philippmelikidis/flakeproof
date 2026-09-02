@@ -37,12 +37,21 @@ import { rerunStats } from './rerun.js';
 // a legacy single-file ack, or the content of one file inside the current
 // ack directory format. Never throws.
 //
-// Returns `{ installed, count, ruleLive }` where `count` is a number or
+// Returns `{ installed, count, ruleLive }` where `installed` is `true` only
+// when the payload positively says so, `false` when it positively says the
+// opposite (an explicit `{"installed": false}`), and `null` when the content
+// exists but proves nothing either way (empty, garbage, or JSON with no
+// usable `installed` field) - a receipt that cannot be interpreted must never
+// be silently treated as proof of installation. `count` is a number or
 // `null` (unknown, never a fabricated zero) and `ruleLive` is `true`,
 // `false`, or `null` (unknown - an old-format ack predates this field
 // entirely, so `null` here means "no opinion", not "not live").
 function parseAckPayload(raw) {
   const trimmed = raw.trim();
+  if (trimmed === '') {
+    // Nothing was actually written; a blank file proves nothing.
+    return { installed: null, count: null, ruleLive: null };
+  }
   if (trimmed === 'injected') {
     // Old-format ack from a wrapper version that predates match counting.
     // It proves installation and nothing else.
@@ -50,18 +59,20 @@ function parseAckPayload(raw) {
   }
   try {
     const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === 'object' && parsed.installed) {
+    if (parsed && typeof parsed === 'object' && 'installed' in parsed) {
+      // Read `installed` as written, including an explicit `false` - it must
+      // never be inverted into `true` just because the field was present.
       return {
-        installed: true,
+        installed: parsed.installed === true,
         count: typeof parsed.count === 'number' ? parsed.count : null,
         ruleLive: typeof parsed.ruleLive === 'boolean' ? parsed.ruleLive : null,
       };
     }
   } catch {
-    // Malformed ack content still proves the wrapper wrote something; fall
-    // through to the same "installed, nothing else known" answer below.
+    // Malformed JSON: fall through to the same "unreadable content, no
+    // opinion" answer below rather than assuming installation.
   }
-  return { installed: true, count: null, ruleLive: null };
+  return { installed: null, count: null, ruleLive: null };
 }
 
 // Reads and interprets one round's acknowledgment at `ackPath` - whatever
@@ -72,10 +83,13 @@ function parseAckPayload(raw) {
 // every page's real report, every iframe's or worker's own report - gets its
 // own file inside it, so no single writer can erase another's evidence
 // (Fix 1 in the review). This reads every file in the directory and
-// aggregates: the count is the MAX of every writer's known count (the
-// strongest evidence actually observed), `null` only when NO writer reported
-// a known number; `ruleLive` is `true` when AT LEAST ONE writer confirmed
-// the rule was live.
+// aggregates count and ruleLive from a SINGLE observation: the payload with
+// the strongest known count. Two different writers must never be fused into
+// a conjunction neither of them actually reported - an iframe reporting
+// `{count: 9, ruleLive: false}` alongside a main-page writer reporting
+// `{count: 0, ruleLive: true}` must never be read as "matched 9, rule live",
+// since no writer observed that pair. When no writer reported a known count
+// at all, `ruleLive` has no observation to anchor to and stays `null`.
 //
 // A wrapper written before that fix (or a hand-rolled one) may still write
 // ackPath directly as a plain FILE. That legacy shape is read exactly as
@@ -83,19 +97,25 @@ function parseAckPayload(raw) {
 // codebase's own wrapper produces going forward.
 //
 // Returns `{ installed, count, ruleLive, unreadable }`:
-//   - `installed`: `true` (the wrapper ran and left a readable receipt),
-//     `false` (nothing at ackPath at all), or `null` (something is at
-//     ackPath but could not be read - see `unreadable`).
-//   - `count`: the strongest known matched-element count, or `null` when not
-//     knowable. `null` must never be treated as, or collapse into, a
-//     confirmed zero.
-//   - `ruleLive`: `true` only when positively confirmed by at least one
-//     writer; `false` otherwise (including "unknown"), because a confident
-//     claim requires this to be positively established, never assumed.
-//   - `unreadable`: `true` when ackPath exists but could not be read (for
-//     example, a permissions error). This must be distinguishable from a
-//     genuinely missing ack, so the user is never told to install the
-//     wrapper when the real problem is filesystem permissions.
+//   - `installed`: `true` (at least one file positively confirms
+//     installation), `false` (nothing at ackPath at all, or every file
+//     positively says `installed: false`), or `null` (something is at
+//     ackPath but either could not be read - see `unreadable` - or every
+//     readable file's content could not be interpreted as a real receipt;
+//     unparseable bytes must never be read as proof of installation).
+//   - `count`: the strongest known matched-element count, from the single
+//     payload that reported it, or `null` when not knowable. `null` must
+//     never be treated as, or collapse into, a confirmed zero.
+//   - `ruleLive`: `true` or `false` when positively established by the SAME
+//     payload the count came from, `null` when unknown. A confident claim
+//     requires this to be positively established, never assumed.
+//   - `unreadable`: `true` only when NO usable payload could be recovered at
+//     all (every entry failed to read, or the directory listing itself
+//     failed). One unreadable file alongside a usable payload must never
+//     discard that payload's evidence - the reproduction it supports must
+//     survive. This must also stay distinguishable from a genuinely missing
+//     ack, so the user is never told to install the wrapper when the real
+//     problem is filesystem permissions.
 async function readAck(ackPath) {
   let info;
   try {
@@ -112,29 +132,45 @@ async function readAck(ackPath) {
       return { installed: null, count: null, ruleLive: false, unreadable: true };
     }
     const payloads = [];
-    let anyUnreadable = false;
+    let anyFileUnreadable = false;
     for (const entry of entries) {
       try {
         payloads.push(parseAckPayload(await readFile(join(ackPath, entry), 'utf8')));
       } catch {
-        anyUnreadable = true;
+        anyFileUnreadable = true;
       }
     }
     if (payloads.length === 0) {
       // Either the directory is empty (no writer has reported yet - not
       // installed), or every entry it did contain failed to read (genuinely
       // unreadable, distinct from "no receipt at all").
-      return anyUnreadable
+      return anyFileUnreadable
         ? { installed: null, count: null, ruleLive: false, unreadable: true }
         : { installed: false, count: null, ruleLive: false, unreadable: false };
     }
-    const counts = payloads.map((p) => p.count).filter((c) => typeof c === 'number');
-    return {
-      installed: true,
-      count: counts.length === 0 ? null : Math.max(...counts),
-      ruleLive: payloads.some((p) => p.ruleLive === true),
-      unreadable: anyUnreadable,
-    };
+    // At least one file was read successfully - a genuinely unreadable file
+    // elsewhere in the directory must not discard the usable payloads we did
+    // recover, so `unreadable` is false from here on regardless of
+    // `anyFileUnreadable`.
+    const confirmedInstalled = payloads.filter((p) => p.installed === true);
+    if (confirmedInstalled.length === 0) {
+      // Every readable file's content was unparseable, garbage, or an
+      // explicit `{"installed": false}` - a receipt exists but nothing in it
+      // proves installation.
+      return { installed: null, count: null, ruleLive: null, unreadable: false };
+    }
+    const known = confirmedInstalled.filter((p) => typeof p.count === 'number');
+    let count = null;
+    let ruleLive = null;
+    if (known.length > 0) {
+      // The strongest evidence actually observed, read as ONE observation:
+      // count and ruleLive both come from the same payload, never fused
+      // independently across different writers (Fix 1).
+      const strongest = known.reduce((best, p) => (p.count > best.count ? p : best), known[0]);
+      count = strongest.count;
+      ruleLive = strongest.ruleLive;
+    }
+    return { installed: true, count, ruleLive, unreadable: false };
   }
 
   // Plain file: legacy single-writer ack format.
@@ -144,8 +180,7 @@ async function readAck(ackPath) {
   } catch {
     return { installed: null, count: null, ruleLive: false, unreadable: true };
   }
-  const payload = parseAckPayload(raw);
-  return { ...payload, ruleLive: payload.ruleLive === true, unreadable: false };
+  return { ...parseAckPayload(raw), unreadable: false };
 }
 
 // The strongest count actually observed across every round tried, used only
@@ -204,8 +239,13 @@ export async function temporalProbe(command, selector, { delays = [250, 500, 100
           // the wrapper was never installed.
           return { reproduced: false, delay: null, tried, control, injected: null, matched: null, ruleLive: false, unreadable: true };
         }
-        if (!ack.installed) {
-          return { reproduced: false, delay: null, tried, control, injected: false, matched: null, ruleLive: false, unreadable: false };
+        if (ack.installed !== true) {
+          // `ack.installed === false` means positively confirmed absent (no
+          // ackPath at all, or an explicit `{"installed": false}`); `null`
+          // means a receipt exists but its content could not be interpreted
+          // as one (empty, garbage, or unparseable) - genuinely unknown, not
+          // the same claim as "confirmed never installed" (Fix 7).
+          return { reproduced: false, delay: null, tried, control, injected: ack.installed === false ? false : null, matched: null, ruleLive: false, unreadable: false };
         }
         if (ack.count === 0) {
           return { reproduced: false, delay: null, tried, control, injected: true, matched: 0, ruleLive: ack.ruleLive, unreadable: false };

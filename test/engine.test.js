@@ -473,6 +473,240 @@ process.exit(n % 2 === 1 ? 1 : 0);`,
   }
 });
 
+// Fix 1: an iframe writer reporting {count: 9, ruleLive: false} and a
+// main-page writer reporting {count: 0, ruleLive: true} in the SAME round
+// must never be fused into "matched 9, confirmed live" - no writer ever
+// observed that conjunction. The old code reduced count with Math.max and
+// ruleLive with payloads.some(...) independently.
+test('Fix 1: two writers with disagreeing count and ruleLive never produce a confident reproduction claim', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'two-writers.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const path=require("path");' +
+        'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack){' +
+        'fs.mkdirSync(ack,{recursive:true});' +
+        'fs.writeFileSync(path.join(ack,"iframe.json"),JSON.stringify({installed:true,count:9,ruleLive:false}));' +
+        'fs.writeFileSync(path.join(ack,"main.json"),JSON.stringify({installed:true,count:0,ruleLive:true}));' +
+        '}' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, false, 'no single writer reported a live rule with a nonzero count');
+    assert.equal(result.temporal.matched, 9, 'the strongest count observed is still surfaced');
+    assert.equal(result.temporal.ruleLive, false, 'ruleLive must come from the same writer as the count, not a different one');
+    assert.ok(!result.notes.some((note) => note.includes('likely a missing wait')), JSON.stringify(result.notes));
+    assert.ok(
+      result.notes.some((note) => note.includes('matched 9 element') && note.includes('never confirmed live') && note.includes('not evidence against a timing cause')),
+      JSON.stringify(result.notes),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Fix 2: rounds confirming a nonzero match but with ruleLive [true, false,
+// false, false] must not earn the confident "matched N element(s) on every
+// round ... timing is unlikely to be the cause" wording - only one round out
+// of four ever confirmed the rule was live, even though the aggregate
+// ruleLive flag (tried.some(...)) is true.
+test('Fix 2: a confident negative requires ruleLive on every round, not just the aggregate', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'partial-rule-live.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'const ruleLive = ms===250;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:true,count:2,ruleLive}));' +
+        'process.exit(0);', // never fails: the loop runs to completion across every delay
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, false);
+    assert.deepEqual(result.temporal.tried.map((t) => t.ruleLive), [true, false, false, false]);
+    assert.deepEqual(result.temporal.tried.map((t) => t.matched), [2, 2, 2, 2]);
+    assert.ok(
+      !result.notes.some((note) => note.includes('on every round') && note.includes('timing is unlikely to be the cause')),
+      `must not claim a confident negative when only one round confirmed a live rule, got: ${JSON.stringify(result.notes)}`,
+    );
+    assert.ok(
+      result.notes.some((note) => note.includes('varied across rounds') && note.includes('not confidently ruled out')),
+      JSON.stringify(result.notes),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Fix 3: a round that failed on every one of its runs but whose ack could
+// not report a count (an old-format ack) is weak evidence FOR timing, not
+// evidence against it. The old catch-all phrasing ("timing remains unlikely
+// but not excluded") was reached by this case too, contradicting the
+// Timing provocation table showing that round failed on every run.
+test('Fix 3: an old-format ack on a round that failed on every run is named as an unverified possible reproduction', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'old-format-full-failure.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,"injected");' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, false);
+    assert.equal(result.temporal.matched, null);
+    assert.equal(result.temporal.tried.at(-1).failures, result.temporal.tried.at(-1).runs, 'the last round tried must have failed on every run');
+    assert.ok(
+      result.notes.some((note) => note.includes('unverified possible reproduction')),
+      JSON.stringify(result.notes),
+    );
+    assert.ok(
+      !result.notes.some((note) => note.includes('timing remains unlikely but not excluded')),
+      `a round that failed on every run must not be described as evidence against timing, got: ${JSON.stringify(result.notes)}`,
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Fix 4: the aggregate `injected` flag is `tried.some(t => t.installed)`, so
+// it reads true even when only one of four rounds ever produced a receipt.
+// The note must say what actually happened per round, not claim "installed
+// on every round".
+test('Fix 4: only some rounds acknowledging is named per round, not "installed on every round"', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'partial-install.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        // Only the very first delay round (250ms) ever acknowledges, and
+        // with an old-format ack (no count). The other three rounds never
+        // write anything.
+        'if(ms===250&&ack)fs.writeFileSync(ack,"injected");' +
+        'process.exit(0);', // never fails, so the loop runs through every delay
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.deepEqual(result.temporal.tried.map((t) => t.installed), [true, false, false, false]);
+    assert.ok(
+      !result.notes.some((note) => note.includes('installed on every round')),
+      `must not claim "installed on every round" when only one round installed, got: ${JSON.stringify(result.notes)}`,
+    );
+    assert.ok(
+      result.notes.some((note) => note.includes('only acknowledged on some rounds')),
+      JSON.stringify(result.notes),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Fix 5: one unreadable file inside the ack directory must not discard a
+// usable payload recovered from a sibling file in the same round - the
+// reproduction that payload supports must survive.
+test('Fix 5: one unreadable ack file alongside a usable payload still yields a reproduction', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'mixed-readability.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const path=require("path");' +
+        'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack){' +
+        'fs.mkdirSync(ack,{recursive:true});' +
+        'fs.writeFileSync(path.join(ack,"good.json"),JSON.stringify({installed:true,count:2,ruleLive:true}));' +
+        'fs.writeFileSync(path.join(ack,"bad.json"),"unreadable-on-purpose");' +
+        'fs.chmodSync(path.join(ack,"bad.json"),0o000);' +
+        '}' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, true, 'the usable payload must survive alongside one unreadable file');
+    assert.equal(result.temporal.matched, 2);
+    assert.ok(result.notes.some((note) => note.includes('likely a missing wait')), JSON.stringify(result.notes));
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Fix 6: when the control run itself fails, the probe aborts before any
+// delay round runs (`temporal.tried` is empty). The report renders every
+// step under "What flakeproof did", so a "Provoked a delay" step must never
+// be recorded when no delay round actually ran.
+test('Fix 6: no "Provoked a delay" step is recorded when the control run aborts the probe', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const counterFile = join(dir, 'counter.txt');
+    const script = join(dir, 'alternating.cjs');
+    await writeFile(
+      script,
+      `const fs = require('fs');
+const f = process.env.FP_COUNTER_FILE;
+const n = fs.existsSync(f) ? Number(fs.readFileSync(f, 'utf8')) + 1 : 1;
+fs.writeFileSync(f, String(n));
+process.exit(n % 2 === 1 ? 1 : 0);`,
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `FP_COUNTER_FILE=${counterFile} node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.tried.length, 0, 'the control failure must abort before any delay round runs');
+    assert.ok(
+      !result.detail.steps.some((s) => s.label === 'Provoked a delay on the anchor'),
+      `no delay round ran, so this step must not be recorded, got steps: ${JSON.stringify(result.detail.steps)}`,
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('every triage result carries a temporal field', async () => {
   const result = await triage({ errorText: 'AssertionError: Should Be Equal failed: A != B' });
   assert.equal(result.verdict, 'no-anchor');

@@ -329,3 +329,115 @@ test('a legacy plain-file ack (not a directory) is still read correctly', async 
     if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
+
+// Fix 1: two different writers in the SAME round must never be fused into a
+// conjunction neither of them actually reported. An iframe writer reporting
+// {count: 9, ruleLive: false} and a main-page writer reporting {count: 0,
+// ruleLive: true} must never combine into "matched 9, rule live" - no writer
+// observed that pair. The old code reduced `count` with Math.max and
+// `ruleLive` with `payloads.some(...)` independently, which produced exactly
+// that impossible conjunction.
+test('two writers with disagreeing count and ruleLive are never fused into a conjunction neither reported', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+    const script = join(dir, 'two-writers.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const path=require("path");' +
+        'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack){' +
+        'fs.mkdirSync(ack,{recursive:true});' +
+        // iframe writer: matched real elements, but its own rule was never
+        // confirmed live.
+        'fs.writeFileSync(path.join(ack,"iframe.json"),JSON.stringify({installed:true,count:9,ruleLive:false}));' +
+        // main-page writer: confirmed the rule live, but matched nothing.
+        'fs.writeFileSync(path.join(ack,"main.json"),JSON.stringify({installed:true,count:0,ruleLive:true}));' +
+        '}' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await temporalProbe(`node ${script}`, '#cta', { delays: [500], runsPerDelay: 2 });
+    assert.equal(result.reproduced, false, 'no single writer reported a live rule with a nonzero count');
+    assert.equal(result.matched, 9, 'the strongest count observed (9) must still be surfaced');
+    assert.equal(result.ruleLive, false, 'ruleLive must come from the SAME writer as the count (9), not be borrowed from a different one');
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Fix 5: one file in the ack directory being unreadable must not discard a
+// usable payload recovered from a sibling file. Only treat a round as
+// unreadable when NO usable payload was recovered at all.
+test('a reproduction survives when one ack file is unreadable but a usable payload exists alongside it', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+    const script = join(dir, 'mixed-readability.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const path=require("path");' +
+        'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack){' +
+        'fs.mkdirSync(ack,{recursive:true});' +
+        'fs.writeFileSync(path.join(ack,"good.json"),JSON.stringify({installed:true,count:2,ruleLive:true}));' +
+        'fs.writeFileSync(path.join(ack,"bad.json"),"unreadable-on-purpose");' +
+        'fs.chmodSync(path.join(ack,"bad.json"),0o000);' +
+        '}' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await temporalProbe(`node ${script}`, '#cta', { delays: [500], runsPerDelay: 2 });
+    assert.equal(result.reproduced, true, 'the usable payload must survive alongside one unreadable file');
+    assert.equal(result.matched, 2);
+    assert.equal(result.ruleLive, true);
+    assert.equal(result.unreadable, false, 'a usable payload was recovered, so this is not an unreadable round');
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Fix 7 (item 1): a receipt whose content cannot be interpreted - an empty
+// file, garbage bytes, or an explicit {"installed": false} - must never be
+// silently read as proof of installation.
+test('an explicit {"installed": false} ack is read as not installed, not inverted to true', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+    const script = join(dir, 'explicit-false.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,JSON.stringify({installed:false}));' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await temporalProbe(`node ${script}`, '#cta', { delays: [500], runsPerDelay: 2 });
+    assert.equal(result.reproduced, false);
+    assert.equal(result.injected, false, 'an explicit installed:false must read as not installed, never as true');
+    assert.equal(result.matched, null);
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('garbage ack content is not silently read as proof of installation', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+    const script = join(dir, 'garbage.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack)fs.writeFileSync(ack,"{not json at all");' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await temporalProbe(`node ${script}`, '#cta', { delays: [500], runsPerDelay: 2 });
+    assert.equal(result.reproduced, false);
+    assert.equal(result.injected, null, 'garbage content proves nothing, so installed-ness is unknown, not confirmed true');
+    assert.equal(result.matched, null);
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});

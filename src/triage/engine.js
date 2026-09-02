@@ -188,7 +188,16 @@ export async function triage(opts) {
               notes.push(`temporal delay targets the css base "${target}" derived from the anchor`);
             }
             temporal = await temporalProbe(opts.rerunCommand, target);
-            step('Provoked a delay on the anchor', temporal.reproduced ? 'reproduced at ' + temporal.delay + ' ms' : 'no reproduction', temporal.reproduced);
+            // Fix 6: a step claiming a delay was provoked must not be
+            // recorded when no delay round ever actually ran - which happens
+            // when the control run itself already failed and the probe
+            // aborted before trying a single delay (`temporal.tried` is
+            // empty in that case). The report renders every step under
+            // "What flakeproof did"; recording this one unconditionally
+            // would tell the user a round happened that never did.
+            if (temporal.tried.length > 0) {
+              step('Provoked a delay on the anchor', temporal.reproduced ? 'reproduced at ' + temporal.delay + ' ms' : 'no reproduction', temporal.reproduced);
+            }
             // Every branch below must be defensible from exactly what
             // temporalProbe observed - never phrase a stronger claim than
             // the evidence supports, and never a weaker one either. The
@@ -198,8 +207,10 @@ export async function triage(opts) {
             // base - see temporal-target.js).
             if (temporal.reproduced) {
               const n = temporal.matched;
+              const reproducingRound = temporal.tried.find((t) => t.delay === temporal.delay);
+              const runsPhrase = reproducingRound ? `every one of ${reproducingRound.runs} run(s)` : 'every run';
               notes.push(
-                `fails on every run when "${target}" appears ${temporal.delay} ms late (the delay rule ` +
+                `fails on ${runsPhrase} when "${target}" appears ${temporal.delay} ms late (the delay rule ` +
                   `matched ${n} element${n === 1 ? '' : 's'}, confirmed live in the stylesheet); likely a missing wait`,
               );
             } else if (temporal.control && temporal.control.failures > 0) {
@@ -216,10 +227,24 @@ export async function triage(opts) {
             } else if (temporal.injected === false) {
               notes.push('the inject wrapper never acknowledged the delay; install withTemporal from flakeproof/inject in the suite before trusting any timing verdict');
             } else if (temporal.matched === 0) {
-              notes.push(
-                `the delay rule matched no element for "${target}"; timing was never actually tested, so this is ` +
-                  'not evidence against a timing cause',
-              );
+              // The aggregate can be a confirmed zero even when only ONE
+              // round actually reported a count and the rest are unknown
+              // (Fix 7); only claim "on every round" when every round tried
+              // actually agrees.
+              const everyRoundZero = temporal.tried.length > 0 && temporal.tried.every((t) => t.matched === 0);
+              if (everyRoundZero) {
+                notes.push(
+                  `the delay rule matched no element for "${target}" on every round tried; timing was never ` +
+                    'actually tested, so this is not evidence against a timing cause',
+                );
+              } else {
+                const perRound = temporal.tried.map((t) => (typeof t.matched === 'number' ? String(t.matched) : 'unknown')).join(', ');
+                notes.push(
+                  `the delay rule matched no element for "${target}" in the only round that reported a count ` +
+                    `(the rest are unknown: ${perRound}); timing was never confirmed tested, so this is not ` +
+                    'evidence against a timing cause',
+                );
+              }
             } else if (temporal.matched > 0 && !temporal.ruleLive) {
               // The selector matched real elements, but the delay rule built
               // from that same selector was never confirmed live in the
@@ -234,28 +259,62 @@ export async function triage(opts) {
             } else if (temporal.matched > 0) {
               // A confident negative ("timing is unlikely to be the cause")
               // additionally requires that EVERY round tried actually
-              // demonstrated a nonzero match - not just the strongest one
-              // seen across rounds (item C). `temporal.matched` is the
-              // MAXIMUM observed across rounds, so if any round's count
-              // disagrees (unknown, or a confirmed zero), the "on every
-              // round" wording would overstate what was actually observed;
-              // hedge instead and show the reader what actually varied.
+              // demonstrated BOTH a nonzero match AND a rule confirmed live
+              // (Fix 2) - not just the strongest count seen across rounds
+              // (item C), and not a rule that was only ever confirmed live
+              // on a DIFFERENT round than the one with a nonzero count
+              // (Fix 1/2: count and rule-live must agree per round, not just
+              // in aggregate). If any round disagrees on either axis, the
+              // "on every round" wording would overstate what was actually
+              // observed; hedge instead and show the reader what varied.
               const everyRoundConfirmed =
-                temporal.tried.length > 0 && temporal.tried.every((t) => typeof t.matched === 'number' && t.matched > 0);
+                temporal.tried.length > 0 &&
+                temporal.tried.every((t) => typeof t.matched === 'number' && t.matched > 0 && t.ruleLive === true);
               if (everyRoundConfirmed) {
                 notes.push(
-                  `no reproduction: the delay rule matched ${temporal.matched} element(s) on every round but the ` +
-                    'test still passed; timing is unlikely to be the cause',
+                  `no reproduction: the delay rule matched ${temporal.matched} element(s) on every round, ` +
+                    'confirmed live in the stylesheet each time, but the test still passed; timing is unlikely to be the cause',
                 );
               } else {
-                const perRound = temporal.tried.map((t) => (typeof t.matched === 'number' ? String(t.matched) : 'unknown')).join(', ');
+                const perRound = temporal.tried
+                  .map((t) => {
+                    const m = typeof t.matched === 'number' ? String(t.matched) : 'unknown';
+                    const live = t.ruleLive === true ? 'live' : t.ruleLive === false ? 'not live' : 'live: unknown';
+                    return `${m} matched, rule ${live}`;
+                  })
+                  .join('; ');
                 notes.push(
-                  `no reproduction: the delay rule's matched element count varied across rounds (${perRound}); ` +
-                    'at least one round did not confirm a nonzero match, so timing is not confidently ruled out',
+                  `no reproduction: the delay rule's evidence varied across rounds (${perRound}); ` +
+                    'at least one round did not confirm both a nonzero match and a live rule, so timing is not confidently ruled out',
                 );
               }
             } else {
-              notes.push('no reproduction: the delay style was installed on every round, but whether it affected the anchor is unverified; timing remains unlikely but not excluded');
+              // temporal.matched === null: installed somewhere, but no round
+              // both fully failed and reported a usable count, OR a round
+              // did fully fail with an unreadable count (old-format ack).
+              // These two situations must not share the same wording (Fix
+              // 3): a round that failed on every one of its runs but could
+              // not report a count is weak evidence FOR timing, not against
+              // it, and must never be described as "unlikely".
+              const anyRoundFullyFailed = temporal.tried.some((t) => t.runs > 0 && t.failures === t.runs);
+              const everyRoundInstalled = temporal.tried.length > 0 && temporal.tried.every((t) => t.installed);
+              if (anyRoundFullyFailed) {
+                notes.push(
+                  'a delay round failed on every run but its match count could not be determined (an old-format ' +
+                    'or incomplete acknowledgment); this is an unverified possible reproduction, not evidence against timing',
+                );
+              } else if (everyRoundInstalled) {
+                notes.push('no reproduction: the delay style was installed on every round, but whether it affected the anchor is unverified; timing remains unlikely but not excluded');
+              } else {
+                // Fix 4: the aggregate `injected` flag is true as soon as ANY
+                // round installed - it must never be read as "every round
+                // installed" when most did not.
+                const perRound = temporal.tried.map((t) => (t.installed ? 'installed' : 'not acknowledged')).join(', ');
+                notes.push(
+                  `no reproduction: the delay style was only acknowledged on some rounds (${perRound}); check ` +
+                    'that the inject wrapper runs on every path exercised by the reruns before trusting this as a negative timing verdict',
+                );
+              }
             }
           }
         }

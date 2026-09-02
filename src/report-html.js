@@ -295,7 +295,7 @@ function timing(temporal) {
   const rows = temporal.tried
     .map((t) => {
       const matched = typeof t.matched === 'number' ? String(t.matched) : 'unknown';
-      const ruleLive = t.ruleLive ? 'yes' : 'no/unknown';
+      const ruleLive = t.ruleLive === true ? 'yes' : t.ruleLive === false ? 'no' : 'unknown';
       const marker = temporal.reproduced && temporal.delay === t.delay ? 'reproduces' : '';
       return `<tr><td>${esc(t.delay)} ms</td><td>${esc(t.failures)}/${esc(t.runs)} runs failed</td><td>${esc(matched)}</td><td>${esc(ruleLive)}</td><td>${marker}</td></tr>`;
     })
