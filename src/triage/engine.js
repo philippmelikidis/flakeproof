@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import { extractAnchor } from './anchor.js';
 import { failedTestsFromOutputXml } from '../adapters/robot.js';
 import { classifyDelta } from './classify.js';
-import { candidatesFor } from './candidates.js';
+import { candidatesFor, CURRENT_SNAPSHOT_VERSION } from './candidates.js';
 import { proveCandidates } from './prove.js';
 import { rerunStats } from './rerun.js';
 import { temporalProbe } from './temporal-probe.js';
@@ -30,9 +30,13 @@ const VERDICT_BY_CLASSIFICATION = { cosmetic: 'fragile', semantic: 'real-change'
 // Internal: exported only so a unit test can call it directly. It is
 // reachable as public API through the package's "exports" map (this module
 // is the "." export), so treat any signature change as a breaking change.
+// The return shape changed from `{ tree, path }` to `{ snapshot, path }`:
+// candidatesFor now needs the whole current-build snapshot (tree plus
+// snapshotVersion), not just its tree, to know whether it can trust the
+// per-node accessible-name exactness flags at all - see candidates.js.
 export function fragileCandidateSource(classification, current) {
   if (!classification?.match?.path) return null;
-  return { tree: current.tree, path: classification.match.path };
+  return { snapshot: current, path: classification.match.path };
 }
 
 // The baseline was captured while the build was green, before the failing
@@ -199,7 +203,13 @@ export async function triage(opts) {
       );
       step('Generated selector candidates', 'skipped: no matching element found in the current build', false);
     } else {
-      const candidates = candidatesFor(source.tree, source.path);
+      const candidates = candidatesFor(source.snapshot, source.path);
+      if (source.snapshot.snapshotVersion !== CURRENT_SNAPSHOT_VERSION) {
+        notes.push(
+          "the current build's snapshot has no recognized snapshotVersion (captured by an older flakeproof, " +
+            'or the field was stripped); role candidates cannot be trusted from it and are suppressed rather than guessed',
+        );
+      }
       if (candidates.length === 0) {
         notes.push('no provable selector candidates found for the anchor element');
         step('Generated selector candidates from the current tree', 'none could be verified for this element', false);

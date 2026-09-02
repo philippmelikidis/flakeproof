@@ -4,6 +4,11 @@
 import { nodeAt, walk, ancestorsOf } from './tree.js';
 import { HASHED_CLASS } from './classify.js';
 
+// Must match SNAPSHOT_VERSION in src/probe/serialize.js. That function is
+// stringified into the page for page.evaluate and cannot import this
+// constant, so the two are hand-synced; bump both together.
+export const CURRENT_SNAPSHOT_VERSION = 1;
+
 // The accessible name is derived from subtree content only for these roles.
 // For every other role a name computed from the subtree is a fabrication and
 // the emitted selector would match nothing, so no candidate is offered.
@@ -73,7 +78,7 @@ function countByChildText(tree, tag, text) {
 function countByRoleName(tree, role, name) {
   let count = 0;
   walk(tree, (node) => {
-    if (node.role === role && (node.name || node.text) === name) count += 1;
+    if (node.role === role && node.name === name) count += 1;
   });
   return count;
 }
@@ -100,7 +105,13 @@ export function queryTree(tree, selector) {
   return out;
 }
 
-export function candidatesFor(tree, path) {
+// `snapshot` is the object produced by serializeDom/captureSnapshot: `{
+// tree, snapshotVersion, ... }`. A bare tree is not accepted, on purpose -
+// the version gate below only protects callers who go through this
+// contract, and a caller that unwraps `.tree` before calling in loses that
+// protection silently instead of erroring, which is worse.
+export function candidatesFor(snapshot, path) {
+  const tree = snapshot.tree;
   const node = nodeAt(tree, path);
   if (!node) return [];
   const raw = [];
@@ -114,9 +125,12 @@ export function candidatesFor(tree, path) {
   // Playwright-syntax candidates. queryTree's css grammar cannot verify
   // these; uniqueness is approximated tree-side (exact own-text match,
   // role + accessible-name match) and finally verified by the prover on the
-  // live page. Fail closed on empty, long or quote-bearing text.
+  // live page. Fail closed on empty, long or quote-bearing text. A <br>
+  // among the element's own children renders as a line break the serializer
+  // drops when concatenating text (see ownText in serialize.js), so the
+  // computed text is not what the page actually shows; never offer it.
   const ownText = node.text;
-  if (ownText && ownText.length <= 80 && !ownText.includes('"')) {
+  if (ownText && ownText.length <= 80 && !ownText.includes('"') && !node.textHasLineBreak) {
     raw.push({ selector: `text="${ownText}"`, kind: 'text' });
   }
   // The serializer computes the accessible name from the whole subtree
@@ -133,11 +147,19 @@ export function candidatesFor(tree, path) {
   // which the serializer cannot resolve per-element, so whatever ended up in
   // `name` is not necessarily the real accessible name. The serializer also
   // flags when its own subtree-text computation could disagree with the
-  // real accname algorithm (a hidden descendant, or an img/area descendant
-  // whose alt text would contribute to the real name but not to ours).
-  // Either case means the tree-side name cannot be trusted, so withhold
-  // the candidate instead of guessing.
-  const nameUnknown = Boolean(node.attrs['aria-labelledby']) || node.nameFromSubtreeIsExact === false;
+  // real accname algorithm (a hidden descendant, a descendant with its own
+  // aria-label/aria-labelledby, an embedded control, a <br>, or an img/area
+  // descendant whose alt text would contribute to the real name but not to
+  // ours) via `nameInexact`. Either case means the tree-side name cannot be
+  // trusted, so withhold the candidate instead of guessing.
+  //
+  // A snapshot with no `snapshotVersion` (or an old one) predates
+  // `nameInexact` entirely: every node in it looks "exact" simply because
+  // the field was never written, which is exactly the silent fail-open this
+  // check exists to prevent. Trust per-node exactness only when the whole
+  // snapshot is known to have been captured by code that computes it.
+  const snapshotIsCurrent = snapshot.snapshotVersion === CURRENT_SNAPSHOT_VERSION;
+  const nameUnknown = Boolean(node.attrs['aria-labelledby']) || node.nameInexact === true || !snapshotIsCurrent;
   if (
     node.role &&
     NAME_FROM_CONTENT_ROLES.has(node.role) &&

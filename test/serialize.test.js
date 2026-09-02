@@ -229,3 +229,183 @@ describe('IMPLICIT_ROLES for header and footer', () => {
     }
   });
 });
+
+test('serializeDom stamps the current snapshotVersion at the top level', async () => {
+  let server = null;
+  let browser = null;
+  try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(server.url);
+    const snap = await page.evaluate(serializeDom, null);
+    assert.equal(typeof snap.snapshotVersion, 'number');
+  } finally {
+    await browser?.close();
+    await server?.close();
+  }
+});
+
+describe('IMPLICIT_ROLES for headings, cells, rows and headers', () => {
+  test('h1-h6, td and tr get their implicit roles', async () => {
+    let server = null;
+    let browser = null;
+    let dir = null;
+    try {
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(
+        dir,
+        '<!doctype html><html><body>' +
+          '<h1 id="h1">One</h1><h6 id="h6">Six</h6>' +
+          '<table><tr id="tr1"><td id="td1">Cell</td></tr></table>' +
+          '</body></html>',
+      );
+      browser = await chromium.launch();
+      const page = await browser.newPage();
+      await page.goto(server.url);
+      const snap = await page.evaluate(serializeDom, null);
+      assert.equal(findNode(snap.tree, (n) => n.id === 'h1').role, 'heading');
+      assert.equal(findNode(snap.tree, (n) => n.id === 'h6').role, 'heading');
+      assert.equal(findNode(snap.tree, (n) => n.id === 'tr1').role, 'row');
+      assert.equal(findNode(snap.tree, (n) => n.id === 'td1').role, 'cell');
+    } finally {
+      await browser?.close();
+      await server?.close();
+      if (dir) await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('th role depends on its scope attribute; without one it is left unmapped', async () => {
+    // A thead-ancestry heuristic (no scope, but inside <thead>) was tried
+    // and dropped: live-verified in a real browser, it only exposes
+    // columnheader when the table also has a body row - a header-only table
+    // collapses in the accessibility tree and exposes no columnheader at
+    // all. That table shape is not decidable from the <th> element alone,
+    // so scope is the only signal trusted here.
+    let server = null;
+    let browser = null;
+    let dir = null;
+    try {
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(
+        dir,
+        '<!doctype html><html><body><table>' +
+          '<tr><th id="col" scope="col">Name</th></tr>' +
+          '<tr><th id="row" scope="row">Row</th></tr>' +
+          '<thead><tr><th id="unscoped">Plain</th></tr></thead>' +
+          '</table></body></html>',
+      );
+      browser = await chromium.launch();
+      const page = await browser.newPage();
+      await page.goto(server.url);
+      const snap = await page.evaluate(serializeDom, null);
+      assert.equal(findNode(snap.tree, (n) => n.id === 'col').role, 'columnheader');
+      assert.equal(findNode(snap.tree, (n) => n.id === 'row').role, 'rowheader');
+      assert.equal(findNode(snap.tree, (n) => n.id === 'unscoped').role, '', 'no scope and only thead ancestry must not guess');
+    } finally {
+      await browser?.close();
+      await server?.close();
+      if (dir) await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the accessible-name exactness gate (nameInexact)', () => {
+  test('nameInexact is absent (not just false) when the subtree agrees with textContent', async () => {
+    let server = null;
+    let browser = null;
+    let dir = null;
+    try {
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(dir, '<!doctype html><html><body><a id="x" href="/x">Contact <b>us</b></a></body></html>');
+      browser = await chromium.launch();
+      const page = await browser.newPage();
+      await page.goto(server.url);
+      const snap = await page.evaluate(serializeDom, null);
+      const node = findNode(snap.tree, (n) => n.id === 'x');
+      assert.equal('nameInexact' in node, false, 'exact nodes must omit the key entirely, not carry it as false');
+    } finally {
+      await browser?.close();
+      await server?.close();
+      if (dir) await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  const inexactCases = [
+    ['a descendant aria-label', '<span aria-label="x">icon</span> text'],
+    ['a descendant aria-labelledby', '<span aria-labelledby="lb">local</span> text'],
+    ['an embedded input', 'Qty: <input value="1">'],
+    ['an embedded textarea', 'Notes: <textarea>hi</textarea>'],
+    ['an embedded select', 'Pick: <select><option>a</option></select>'],
+    ['a line break', 'Line<br>break'],
+    ['an aria-hidden descendant', '<span aria-hidden="true">x</span> text'],
+    ['a hidden-attribute descendant', '<span hidden>x</span> text'],
+    ['a display:none descendant', '<span style="display:none">x</span> text'],
+    ['a visibility:hidden descendant', '<span style="visibility:hidden">x</span> text'],
+    ['an img[alt] descendant', '<img alt="x"> text'],
+  ];
+
+  for (const [label, inner] of inexactCases) {
+    test(`nameInexact is true when the subtree contains ${label}`, async () => {
+      let server = null;
+      let browser = null;
+      let dir = null;
+      try {
+        dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+        server = await serveHtml(dir, `<!doctype html><html><body><button id="x">${inner}</button></body></html>`);
+        browser = await chromium.launch();
+        const page = await browser.newPage();
+        await page.goto(server.url);
+        const snap = await page.evaluate(serializeDom, null);
+        const node = findNode(snap.tree, (n) => n.id === 'x');
+        assert.equal(node.nameInexact, true);
+      } finally {
+        await browser?.close();
+        await server?.close();
+        if (dir) await rm(dir, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+describe('own text and line breaks (textHasLineBreak)', () => {
+  test('a direct <br> child sets textHasLineBreak and does not silently concatenate the surrounding text', async () => {
+    let server = null;
+    let browser = null;
+    let dir = null;
+    try {
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(dir, '<!doctype html><html><body><button id="x">Line<br>break</button></body></html>');
+      browser = await chromium.launch();
+      const page = await browser.newPage();
+      await page.goto(server.url);
+      const snap = await page.evaluate(serializeDom, null);
+      const node = findNode(snap.tree, (n) => n.id === 'x');
+      assert.equal(node.textHasLineBreak, true);
+    } finally {
+      await browser?.close();
+      await server?.close();
+      if (dir) await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('no <br> means textHasLineBreak is absent', async () => {
+    let server = null;
+    let browser = null;
+    let dir = null;
+    try {
+      dir = await mkdtemp(join(tmpdir(), 'fp-serialize-'));
+      server = await serveHtml(dir, '<!doctype html><html><body><button id="x">No break here</button></body></html>');
+      browser = await chromium.launch();
+      const page = await browser.newPage();
+      await page.goto(server.url);
+      const snap = await page.evaluate(serializeDom, null);
+      const node = findNode(snap.tree, (n) => n.id === 'x');
+      assert.equal('textHasLineBreak' in node, false);
+    } finally {
+      await browser?.close();
+      await server?.close();
+      if (dir) await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
