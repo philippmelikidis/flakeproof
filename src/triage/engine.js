@@ -10,7 +10,7 @@ import { candidatesFor, CURRENT_SNAPSHOT_VERSION } from './candidates.js';
 import { proveCandidates } from './prove.js';
 import { rerunStats } from './rerun.js';
 import { temporalProbe } from './temporal-probe.js';
-import { temporalTargetFor } from './temporal-target.js';
+import { temporalTargetFor, isValidCssTarget } from './temporal-target.js';
 import { captureSnapshot } from '../snapshot.js';
 import { nodeAt } from './tree.js';
 import { nodeHtmlAtPath } from '../probe/snippet.js';
@@ -166,33 +166,52 @@ export async function triage(opts) {
         if (!target) {
           notes.push('temporal probe skipped: no sufficiently specific css target can be derived from the anchor');
         } else {
-          if (target !== anchor.selector) {
-            notes.push(`temporal delay targets the css base "${target}" derived from the anchor`);
+          // The derivation is string surgery; validate it against a real
+          // browser before ever using it to provoke a delay. A target that
+          // is not valid css would be silently discarded by the browser,
+          // making the whole experiment a no-op that still looks installed
+          // - exactly the false-confidence issue #10 exists to close.
+          const validationBrowser = await chromium.launch();
+          let targetIsValid;
+          try {
+            targetIsValid = await isValidCssTarget(validationBrowser, target);
+          } finally {
+            await validationBrowser.close();
           }
-          temporal = await temporalProbe(opts.rerunCommand, target);
-          step('Provoked a delay on the anchor', temporal.reproduced ? 'reproduced at ' + temporal.delay + ' ms' : 'no reproduction', temporal.reproduced);
-          if (temporal.reproduced) {
-            const n = temporal.matched;
+          if (!targetIsValid) {
             notes.push(
-              `fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late (the delay rule ` +
-                `matched ${n} element${n === 1 ? '' : 's'}); likely a missing wait`,
-            );
-          } else if (temporal.control && temporal.control.failures > 0) {
-            notes.push('temporal probe aborted: the control run without any delay already failed, so the baseline is too unstable to attribute failures to timing');
-          } else if (temporal.injected === false) {
-            notes.push('the inject wrapper never acknowledged the delay; install withTemporal from flakeproof/inject in the suite before trusting any timing verdict');
-          } else if (temporal.matched === 0) {
-            notes.push(
-              `the delay rule matched no element for "${target}"; timing was never actually tested, so this is ` +
-                'not evidence against a timing cause',
-            );
-          } else if (temporal.matched > 0) {
-            notes.push(
-              `no reproduction: the delay rule matched ${temporal.matched} element(s) on every round but the ` +
-                'test still passed; timing is unlikely to be the cause',
+              `temporal probe skipped: the derived css target "${target}" is not valid css; abstaining rather than ` +
+                'risking a rule the browser would silently discard',
             );
           } else {
-            notes.push('no reproduction: the delay style was installed on every round, but whether it affected the anchor is unverified; timing remains unlikely but not excluded');
+            if (target !== anchor.selector) {
+              notes.push(`temporal delay targets the css base "${target}" derived from the anchor`);
+            }
+            temporal = await temporalProbe(opts.rerunCommand, target);
+            step('Provoked a delay on the anchor', temporal.reproduced ? 'reproduced at ' + temporal.delay + ' ms' : 'no reproduction', temporal.reproduced);
+            if (temporal.reproduced) {
+              const n = temporal.matched;
+              notes.push(
+                `fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late (the delay rule ` +
+                  `matched ${n} element${n === 1 ? '' : 's'}); likely a missing wait`,
+              );
+            } else if (temporal.control && temporal.control.failures > 0) {
+              notes.push('temporal probe aborted: the control run without any delay already failed, so the baseline is too unstable to attribute failures to timing');
+            } else if (temporal.injected === false) {
+              notes.push('the inject wrapper never acknowledged the delay; install withTemporal from flakeproof/inject in the suite before trusting any timing verdict');
+            } else if (temporal.matched === 0) {
+              notes.push(
+                `the delay rule matched no element for "${target}"; timing was never actually tested, so this is ` +
+                  'not evidence against a timing cause',
+              );
+            } else if (temporal.matched > 0) {
+              notes.push(
+                `no reproduction: the delay rule matched ${temporal.matched} element(s) on every round but the ` +
+                  'test still passed; timing is unlikely to be the cause',
+              );
+            } else {
+              notes.push('no reproduction: the delay style was installed on every round, but whether it affected the anchor is unverified; timing remains unlikely but not excluded');
+            }
           }
         }
       }

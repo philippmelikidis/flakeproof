@@ -287,6 +287,26 @@ test('an old-format ack keeps the weakened wording rather than claiming a proven
   }
 });
 
+test('an invalid derived css target is not silently probed; flakeproof abstains', async () => {
+  // temporalTargetFor accepts `[123abc]` as-is (it has a narrowing `[`
+  // token, no chain/comma/pseudo issues, and the string surgery has no
+  // concept of css identifier grammar), but an attribute name may not start
+  // with a digit - a real browser rejects it outright. The round-trip
+  // validation in engine.js must catch what the string surgery could not.
+  const result = await triage({
+    errorText: timeoutError('[123abc]'),
+    rerunCommand: 'node -e "process.exit(0)"',
+    reruns: 2,
+    temporal: true,
+  });
+  assert.equal(result.verdict, 'nondeterministic');
+  assert.equal(result.temporal, null, 'an invalid target must never reach temporalProbe');
+  assert.ok(
+    result.notes.some((n) => n.includes('not valid css')),
+    `expected an abstention note, got: ${JSON.stringify(result.notes)}`,
+  );
+});
+
 test('a missing inject wrapper is named instead of blaming timing', async () => {
   let dir = null;
   try {
