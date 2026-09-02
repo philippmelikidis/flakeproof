@@ -1,0 +1,147 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node@22/22.23.1/bin/node",
+      "/Users/PhilipposMelikidis/dev/robot-framework/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      "test/fixtures/pw/playwright.config.js"
+    ],
+    "configFile": "/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/pw/playwright.config.js",
+    "rootDir": "/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/pw",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/PhilipposMelikidis/dev/robot-framework/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/pw",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json",
+        {
+          "outputFile": "results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 5,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "expect.spec.js",
+      "file": "expect.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "expect timeout fixture",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 1566,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('#does-not-exist')\nExpected: visible\nTimeout: 1500ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 1500ms\u001b[22m\n\u001b[2m  - waiting for locator('#does-not-exist')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('#does-not-exist')\nExpected: visible\nTimeout: 1500ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 1500ms\u001b[22m\n\u001b[2m  - waiting for locator('#does-not-exist')\u001b[22m\n\n    at /Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/pw/expect.spec.js:5:49",
+                    "location": {
+                      "file": "/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/pw/expect.spec.js",
+                      "column": 49,
+                      "line": 5
+                    },
+                    "snippet": "  3 | test('expect timeout fixture', async ({ page }) => {\n  4 |   await page.goto(process.env.FIXTURE_URL);\n> 5 |   await expect(page.locator('#does-not-exist')).toBeVisible({ timeout: 1500 });\n    |                                                 ^\n  6 | });\n  7 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/pw/expect.spec.js",
+                        "column": 49,
+                        "line": 5
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('#does-not-exist')\nExpected: visible\nTimeout: 1500ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 1500ms\u001b[22m\n\u001b[2m  - waiting for locator('#does-not-exist')\u001b[22m\n\n\n  3 | test('expect timeout fixture', async ({ page }) => {\n  4 |   await page.goto(process.env.FIXTURE_URL);\n> 5 |   await expect(page.locator('#does-not-exist')).toBeVisible({ timeout: 1500 });\n    |                                                 ^\n  6 | });\n  7 |\n    at /Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/pw/expect.spec.js:5:49"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-02T09:49:26.756Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/Users/PhilipposMelikidis/dev/robot-framework/test-results/expect-expect-timeout-fixture/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/Users/PhilipposMelikidis/dev/robot-framework/test/fixtures/pw/expect.spec.js",
+                    "column": 49,
+                    "line": 5
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "1f36ecd930099c95f8bc-6be2dd9777e9429b85ff",
+          "file": "expect.spec.js",
+          "line": 3,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-09-02T09:49:26.548Z",
+    "duration": 1901.1940000000002,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

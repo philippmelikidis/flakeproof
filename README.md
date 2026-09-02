@@ -64,6 +64,22 @@ Anchor: `li.css-1a2b3c` (timeout)
 | `#main-nav li:nth-child(1)` | positional | yes | 4/5 |
 ```
 
+### One command instead of three paths
+
+Assembling a baseline, an error file and a url by hand for every failure gets old fast. Record a baseline once while the build is green:
+
+    node bin/flakeproof.js baseline https://your-app.example
+
+Then, whenever the suite goes red, let flakeproof drive it:
+
+    node bin/flakeproof.js run --cmd "npx playwright test" --url https://your-app.example --out run.html
+
+It runs your command, reads which tests failed straight from the reporter output, triages each one, and writes a single page with a verdict per test. Put the repeated values in `flakeproof.config.json` and the command shrinks to `flakeproof run`:
+
+    { "cmd": "npx playwright test", "url": "https://your-app.example", "results": "results.json" }
+
+Robot Framework works the same way with `--reader robot --results output.xml`.
+
 ### A report you can actually read
 
 The text report above is what lands in a CI log. For a human, ask for html instead:
@@ -81,8 +97,11 @@ Honesty is a design rule here: `unclear` is a first-class verdict, abstaining be
                       (--error-file <file> | --robot-xml <output.xml>)
                       (--current-url <url> | --current <file.json>)
                       [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md|file.html>] [--open]
+    flakeproof baseline <url> [--out <file.json>]
+    flakeproof run [--cmd <command>] [--url <url>] [--results <file>] [--reader playwright|robot]
+                   [--baseline <file.json>] [--out <file.md|file.html>]
 
-Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or runtime errors.
+Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or runtime errors. For run, the exit code is 0 when the suite was triaged, whether or not tests failed, and 1 when the setup was unusable or a flag was missing.
 
 ### Catching missing waits
 
