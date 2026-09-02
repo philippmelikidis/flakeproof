@@ -25,16 +25,30 @@ Green under semantic changes means blind. Red under cosmetic or timing changes m
 
 The mutations run inside the browser, not inside the test runner, so the core is framework agnostic. Playwright and Robot Framework are supported today; Cypress, Selenium and Puppeteer only need the same two small adapter hooks.
 
+## Installation
+
+flakeproof is not published to npm yet (see `docs/publishing.md` for what that would take), so `npx flakeproof` does not work today. Clone the repository and run it straight from the checkout instead:
+
+    git clone https://github.com/philippmelikidis/flakeproof.git
+    cd flakeproof
+    npm install
+    npx playwright install chromium
+    node bin/flakeproof.js
+
+The last command prints usage and exits with a non-zero status (there is no dedicated `--help` flag yet); that is expected and confirms the CLI is reachable.
+
+Every command below is written as `node bin/flakeproof.js <command>` for that reason. If you scripted an older example that used `npx flakeproof`, replace it with `node bin/flakeproof.js` (from the repository root, or an absolute/relative path to `bin/flakeproof.js` from elsewhere).
+
 ## Red triage
 
 The first shipped workflow. While the build is green, capture a baseline:
 
-    npx flakeproof snapshot https://your-app.example --out baseline.json
+    node bin/flakeproof.js snapshot https://your-app.example --out baseline.json
 
 When CI goes red, hand flakeproof the failure and the current build:
 
-    npx flakeproof triage --baseline baseline.json --robot-xml output.xml --current-url https://your-app.example
-    npx flakeproof triage --baseline baseline.json --error-file error.txt --current-url https://your-app.example --rerun-cmd "npx playwright test -g checkout"
+    node bin/flakeproof.js triage --baseline baseline.json --robot-xml output.xml --current-url https://your-app.example
+    node bin/flakeproof.js triage --baseline baseline.json --error-file error.txt --current-url https://your-app.example --rerun-cmd "npx playwright test -g checkout"
 
 flakeproof extracts the anchor (the locator the test was hanging on) from the real error message, optionally reruns the test to catch nondeterminism, compares the baseline DOM against the current build at exactly that anchor, and answers with one of five verdicts:
 
@@ -74,7 +88,7 @@ Then, whenever the suite goes red, let flakeproof drive it:
 
     node bin/flakeproof.js run --cmd "npx playwright test" --url https://your-app.example --out run.html
 
-It runs your command, reads which tests failed straight from the reporter output, triages each one, and writes a single page with a verdict per test. Put the repeated values in `flakeproof.config.json` and the command shrinks to `flakeproof run`:
+It runs your command, reads which tests failed straight from the reporter output, triages each one, and writes a single page with a verdict per test. Put the repeated values in `flakeproof.config.json` and the command shrinks to `node bin/flakeproof.js run`:
 
     { "cmd": "npx playwright test", "url": "https://your-app.example", "results": "results.json" }
 
@@ -91,6 +105,8 @@ That writes a single self-contained file (inline css, no scripts, no external re
 Honesty is a design rule here: `unclear` is a first-class verdict, abstaining beats asserting, and a recommendation that failed proving is never shown as safe.
 
 ### CLI reference
+
+`flakeproof` below stands for `node bin/flakeproof.js` (see "Installation" above).
 
     flakeproof snapshot <url> [--anchor <selector>] --out <file.json>
     flakeproof triage --baseline <file.json>
@@ -136,7 +152,7 @@ Red triage answers "is this red test a real bug or a fragile test". It says noth
 
 Usage:
 
-    flakeproof blindspots --cmd "npx playwright test" --results results.json \
+    node bin/flakeproof.js blindspots --cmd "npx playwright test" --results results.json \
                           --selectors "#header-title,#cta" [--mutations change-text,change-href] \
                           [--out report.html]
 
