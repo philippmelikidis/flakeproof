@@ -67,19 +67,21 @@ test('changed text against the semantic build is a real change', async () => {
   }
 });
 
-test('removed weak-identity element yields an honest unclear', async () => {
+test('removed weak-identity element is confidently reported once its name is nowhere in the current build', async () => {
   // A bare <li> wrapping a link has no own text, no id, no href and no
   // explicit aria-label of its own - the only markers the classifier treats
   // as intrinsic identity (see the weakIdentity check in
-  // src/triage/classify.js). Its computed accessible `name` is derived from
-  // the whole subtree ("Solutions", from the child <a>), but that is not an
-  // intrinsic marker of the li itself: it changes whenever the child's text
-  // changes, so it cannot be used to tell "this exact element was removed"
-  // from "the matcher could not confidently re-identify it". Page v3 removes
-  // this li outright (Products/Company/Careers remain, Solutions does not),
-  // but since other <li> elements of the same tag survive, the classifier
-  // cannot honestly rule out a rename/move and must hedge to 'unclear'
-  // rather than confidently claim removal.
+  // src/triage/classify.js). Its computed accessible `name` ("Solutions",
+  // from the child <a>) is not an intrinsic marker of the li itself: it
+  // changes whenever the child's text changes, so it alone cannot tell
+  // "this exact element was removed" from "the matcher could not
+  // confidently re-identify it after a reword". But the classifier can
+  // check something stronger than the li's own weak identity: whether that
+  // name survives ANYWHERE in the current build at all. Page v3 removes
+  // this li outright (Products/Company/Careers remain, Solutions does not,
+  // and nothing on the page mentions "Solutions" anymore), so the removal
+  // is well-supported and the verdict is a confident real-change, not a
+  // hedge - even though other <li> elements of the same tag survive.
   let dir = null;
   let v3 = null;
   try {
@@ -91,7 +93,11 @@ test('removed weak-identity element yields an honest unclear', async () => {
       baselinePath,
       currentUrl: v3.url,
     });
-    assert.equal(result.verdict, 'unclear');
+    assert.equal(result.verdict, 'real-change');
+    assert.ok(
+      result.classification.reasons.some((msg) => msg.includes('no longer exists in current build')),
+      `expected a confident removal reason, got: ${JSON.stringify(result.classification.reasons)}`,
+    );
   } finally {
     await v3?.close();
     if (dir) await rm(dir, { recursive: true, force: true });

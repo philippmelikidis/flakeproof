@@ -51,6 +51,40 @@ export function classifyDelta(baseline, current, anchorSelector) {
       !target.id && !target.text && !target.attrs.href && !target.attrs['aria-label'];
     const sameTagSurvives = weakIdentity && findNode(current.tree, (n) => n.tag === target.tag) !== null;
     if (sameTagSurvives) {
+      // The weak-identity hedge exists because a bare element (no id/text/
+      // href/aria-label of its own) cannot be told apart from a rename or a
+      // move using its own markers alone. But there is stronger evidence
+      // available: `target.name`, the accessible name computed from the
+      // element's whole subtree at capture time (see src/probe/serialize.js).
+      // It is not an intrinsic marker of the element itself - a rename of a
+      // DIFFERENT element could coincidentally produce the same name - but
+      // its total ABSENCE from the current build is real evidence: if the
+      // element had merely been renamed or moved, the content that used to
+      // name it would still be sitting on some node in the current tree
+      // (either the same node reworded, or a different node it was merged
+      // into). Match by substring, not exact equality, and check the target
+      // name against every current node's OWN name and text: a reword like
+      // "Solutions" -> "Our Solutions" keeps "Solutions" as a substring of
+      // the new name, and must still hedge (the element is still there,
+      // just reworded) - only a name that does not survive at all supports
+      // a confident removal. An empty target name (e.g. an icon-only
+      // element with no text anywhere in its subtree) has nothing to search
+      // for and must not be treated as "not found"; keep the old hedge.
+      const targetName = (target.name || '').trim();
+      const nameSurvives =
+        !targetName ||
+        findNode(current.tree, (n) => (n.name || '').includes(targetName) || (n.text || '').includes(targetName)) !==
+          null;
+      if (!nameSurvives) {
+        return {
+          verdict: 'semantic',
+          reasons: [
+            `element <${target.tag}${target.id ? '#' + target.id : ''}> no longer exists in current build ` +
+              `(its name "${target.name}" is not found anywhere in the current build)`,
+          ],
+          match: null,
+        };
+      }
       return {
         verdict: 'unclear',
         reasons: [

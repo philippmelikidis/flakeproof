@@ -247,6 +247,54 @@ test('weak-identity element (no id/text/href of its own) is now re-identified vi
   assert.ok(r.match, 'locality must now enable matching of bare li');
 });
 
+test('a weak-identity element whose name is nowhere in the current build is confidently reported as removed', () => {
+  // Same shape as the "other <li> elements survive" hedge case, but this
+  // time the removed element's name ("Solutions") does not show up
+  // anywhere in the current tree - not on any node's own computed name,
+  // not in any node's own text. That is real evidence the element itself,
+  // not just its class or position, is gone: were it merely renamed or
+  // moved, some node in the current build would still carry that content.
+  // The weak-identity hedge exists to cover a rename/move that this exact
+  // check can now rule out, so the verdict should be a confident 'semantic'
+  // (real-change), not 'unclear'.
+  const before = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [
+            n('a', { text: 'Products', attrs: { href: '/products/' } }),
+          ]),
+          n('li', { classes: ['css-9z8y7x', 'nav-item'], name: 'Solutions' }, [
+            n('a', { text: 'Solutions', attrs: { href: '/solutions/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    [0, 0, 1], // body > ul > li(Solutions)
+  );
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [
+            n('a', { text: 'Products', attrs: { href: '/products/' } }),
+          ]),
+          n('li', { classes: ['css-4d5e6f', 'nav-item'] }, [
+            n('a', { text: 'Company', attrs: { href: '/company/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'li.css-9z8y7x');
+  assert.equal(r.verdict, 'semantic');
+  assert.ok(
+    r.reasons.some((msg) => msg.includes('no longer exists in current build')),
+    `expected a confident removal reason, got: ${JSON.stringify(r.reasons)}`,
+  );
+});
+
 test('a bare li whose child text was merely reworded is not falsely reported as removed', () => {
   // Reproduces a false positive: the accessible `name` on a node is now
   // derived from the whole subtree (see src/probe/serialize.js), so it is
