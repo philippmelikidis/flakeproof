@@ -1,19 +1,32 @@
-// Opt-in temporal injection for @playwright/test users. Wrap your base test
-// once and every browser context it creates honors the FLAKEPROOF_TEMPORAL_*
-// environment variables that `flakeproof triage --temporal` sets:
+// Opt-in injection for @playwright/test users. Wrap your base test once and
+// every browser context it creates honors two independent sets of
+// FLAKEPROOF_* environment variables:
 //
 //   import { test as base } from '@playwright/test';
 //   import { withTemporal } from 'flakeproof/inject';
 //   export const test = withTemporal(base);
 //
-// Without the env vars the wrapper is inert, so it can stay in place
-// permanently.
+// - FLAKEPROOF_TEMPORAL_* (set by `flakeproof triage --temporal`): delays an
+//   element to provoke a timing-dependent failure deterministically.
+// - FLAKEPROOF_MUTATION_* (set by `flakeproof blindspots`): applies one
+//   semantic mutation from src/probe/catalogs/semantic.js to an element, to
+//   measure whether the user's suite notices.
+//
+// Despite the name, this single wrapper is the one opt-in injection point
+// for both: they are the same mechanism (env vars read once per context,
+// addInitScript, a filesystem ack directory acknowledging what actually
+// happened) applied to two different experiments, and a project should only
+// ever need to wire up one wrapper. Without either set of env vars the
+// wrapper is inert, so it can stay in place permanently.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { temporalScript } from '../probe/temporal.js';
+import { mutationScript } from '../probe/mutation-script.js';
+import { semanticMutations } from '../probe/catalogs/semantic.js';
 
 const REPORT_FN = '__flakeproofTemporalMatchCount';
+const MUTATION_REPORT_FN = '__flakeproofMutationApplied';
 
 export function withTemporal(base) {
   return base.extend({
@@ -68,6 +81,42 @@ export function withTemporal(base) {
         // honest answer, never a fabricated zero.
         await writeAck(null, null);
       }
+
+      // Mutation injection (the blindspots probe). Same shape as the
+      // temporal block above, generalized from a match count to a single
+      // applied/not-applied boolean: a mutation is a one-shot edit, not a
+      // continuous rule, so there is nothing to recount later.
+      const mutationId = process.env.FLAKEPROOF_MUTATION_ID;
+      const mutationSelector = process.env.FLAKEPROOF_MUTATION_SELECTOR;
+      if (mutationId && mutationSelector) {
+        const mutation = semanticMutations.find((m) => m.id === mutationId);
+        if (mutation) {
+          const mutationAckDir = process.env.FLAKEPROOF_MUTATION_ACK;
+          const writeMutationAck = async (applied) => {
+            if (!mutationAckDir) return;
+            const file = join(mutationAckDir, `${process.pid}-${randomUUID()}.json`);
+            await mkdir(mutationAckDir, { recursive: true })
+              .then(() => writeFile(file, JSON.stringify({ installed: true, applied })))
+              .catch(() => {});
+          };
+          if (mutationAckDir) {
+            // The page reports whether the mutation actually applied once
+            // the document has real content (see mutationScript). Registered
+            // before addInitScript so it exists by the time the injected
+            // script runs in any page this context creates.
+            await context.exposeBinding(MUTATION_REPORT_FN, (_source, applied) => writeMutationAck(applied)).catch(() => {});
+          }
+          await context.addInitScript(mutationScript(mutation, mutationSelector, MUTATION_REPORT_FN));
+          // An initial receipt with an unknown `applied` proves installation
+          // before any page has had a chance to report back - the same
+          // honesty guarantee as the temporal ack above: if no page ever
+          // reports (the test fails before the document finishes parsing),
+          // this is what measureBlindspots reads, never a fabricated
+          // false.
+          await writeMutationAck(null);
+        }
+      }
+
       await use(context);
     },
   });

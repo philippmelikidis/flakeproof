@@ -162,6 +162,114 @@ test('does nothing without env vars or with an invalid delay', async () => {
   }
 });
 
+test('injects the mutation script and acknowledges installation before the applied result is known', async () => {
+  process.env.FLAKEPROOF_MUTATION_ID = 'change-text';
+  process.env.FLAKEPROOF_MUTATION_SELECTOR = '#header-title';
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-mutation-ack-'));
+  process.env.FLAKEPROOF_MUTATION_ACK = ackDir;
+  try {
+    const wrapped = withTemporal(stubBase());
+    const context = stubContext();
+    const used = await runContextFixture(wrapped, context);
+    assert.equal(used, context);
+    assert.equal(context.scripts.length, 1, 'no temporal env vars set, so this is the only script');
+    assert.ok(context.scripts[0].includes('#header-title'));
+    assert.equal(typeof context.bindings.__flakeproofMutationApplied, 'function');
+
+    const afterInstall = await readAcks(ackDir);
+    assert.equal(afterInstall.length, 1);
+    assert.deepEqual(afterInstall[0], { installed: true, applied: null });
+
+    await context.bindings.__flakeproofMutationApplied({}, true);
+    const afterReport = await readAcks(ackDir);
+    assert.equal(afterReport.length, 2, 'the real report lands in its own file, the installation receipt survives');
+    const sorted = [...afterReport].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const expected = [
+      { installed: true, applied: null },
+      { installed: true, applied: true },
+    ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    assert.deepEqual(sorted, expected);
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    delete process.env.FLAKEPROOF_MUTATION_SELECTOR;
+    delete process.env.FLAKEPROOF_MUTATION_ACK;
+    await rm(ackDir, { recursive: true, force: true });
+  }
+});
+
+test('an unknown mutation id injects nothing, since the catalog entry does not exist', async () => {
+  process.env.FLAKEPROOF_MUTATION_ID = 'not-a-real-mutation';
+  process.env.FLAKEPROOF_MUTATION_SELECTOR = '#header-title';
+  try {
+    const wrapped = withTemporal(stubBase());
+    const context = stubContext();
+    await runContextFixture(wrapped, context);
+    assert.equal(context.scripts.length, 0);
+    assert.equal(Object.keys(context.bindings).length, 0);
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    delete process.env.FLAKEPROOF_MUTATION_SELECTOR;
+  }
+});
+
+test('mutation injection does nothing without both mutation env vars', async () => {
+  const wrapped = withTemporal(stubBase());
+  const context = stubContext();
+  await runContextFixture(wrapped, context);
+  assert.equal(context.scripts.length, 0);
+  assert.equal(Object.keys(context.bindings).length, 0);
+
+  process.env.FLAKEPROOF_MUTATION_ID = 'change-text';
+  try {
+    const context2 = stubContext();
+    await runContextFixture(withTemporal(stubBase()), context2);
+    assert.equal(context2.scripts.length, 0, 'an id without a selector must not inject');
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+  }
+});
+
+test('temporal and mutation injection coexist: both scripts land on the same context', async () => {
+  process.env.FLAKEPROOF_TEMPORAL_SELECTOR = '#cta';
+  process.env.FLAKEPROOF_TEMPORAL_MS = '800';
+  process.env.FLAKEPROOF_MUTATION_ID = 'remove-element';
+  process.env.FLAKEPROOF_MUTATION_SELECTOR = '#logo';
+  try {
+    const wrapped = withTemporal(stubBase());
+    const context = stubContext();
+    await runContextFixture(wrapped, context);
+    assert.equal(context.scripts.length, 2, 'both the temporal delay and the mutation are independent opt-ins');
+    assert.ok(context.scripts.some((s) => s.includes('#cta')));
+    assert.ok(context.scripts.some((s) => s.includes('#logo')));
+  } finally {
+    delete process.env.FLAKEPROOF_TEMPORAL_SELECTOR;
+    delete process.env.FLAKEPROOF_TEMPORAL_MS;
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    delete process.env.FLAKEPROOF_MUTATION_SELECTOR;
+  }
+});
+
+test('a failure to write the mutation ack file never breaks the fixture', async () => {
+  process.env.FLAKEPROOF_MUTATION_ID = 'change-text';
+  process.env.FLAKEPROOF_MUTATION_SELECTOR = '#header-title';
+  const scratch = await mkdtemp(join(tmpdir(), 'fp-mutation-ack-'));
+  const blocked = join(scratch, 'blocked');
+  await writeFile(blocked, 'not a directory');
+  process.env.FLAKEPROOF_MUTATION_ACK = blocked;
+  try {
+    const wrapped = withTemporal(stubBase());
+    const context = stubContext();
+    await assert.doesNotReject(() => runContextFixture(wrapped, context));
+    assert.equal(context.scripts.length, 1);
+    await assert.doesNotReject(() => context.bindings.__flakeproofMutationApplied({}, true));
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    delete process.env.FLAKEPROOF_MUTATION_SELECTOR;
+    delete process.env.FLAKEPROOF_MUTATION_ACK;
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
 test('a failure to write the ack file never breaks the fixture', async () => {
   process.env.FLAKEPROOF_TEMPORAL_SELECTOR = '#cta';
   process.env.FLAKEPROOF_TEMPORAL_MS = '800';
