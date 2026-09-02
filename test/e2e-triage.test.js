@@ -8,6 +8,7 @@ import { startFixtureServer } from './helpers/serve.js';
 import { captureSnapshot } from '../src/snapshot.js';
 import { triage } from '../src/triage/engine.js';
 import { renderReport } from '../src/report.js';
+import { renderHtmlReport } from '../src/report-html.js';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const timeoutError = (selector) =>
@@ -109,5 +110,28 @@ test('fragile with a current file yields unproven candidates, honestly labeled',
   } finally {
     await v2?.close();
     if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the html report of a real fragile run names both the container and the positional candidate', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fp-e2e-'));
+  const baselinePath = await baselineOfV1(dir);
+  const v2 = await startFixtureServer({ root: join(fixtures, 'page-v2') });
+  try {
+    const result = await triage({
+      errorText: timeoutError('li.css-1a2b3c'),
+      baselinePath,
+      currentUrl: v2.url,
+    });
+    assert.equal(result.verdict, 'fragile');
+    const html = renderHtmlReport(result);
+    assert.ok(html.includes('Before and after'), 'the before/after section must be present');
+    assert.ok(html.includes('What flakeproof did'), 'the step log must be present');
+    const kinds = result.recommendation.map((c) => c.kind);
+    assert.ok(kinds.includes('container-text'), `expected a container-text candidate, got ${kinds.join(', ')}`);
+    assert.ok(result.recommendation.length >= 2, 'more than one recommendation must be offered');
+  } finally {
+    await v2.close();
+    await rm(dir, { recursive: true, force: true });
   }
 });
