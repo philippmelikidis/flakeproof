@@ -60,13 +60,18 @@ async function resolveAnchorPath(baseline, selector) {
 
 export async function triage(opts) {
   const notes = [];
+  const steps = [];
+  const step = (label, outcome, ok = true) => { steps.push({ label, outcome, ok }); };
+  let anchorBefore = null;
+  let anchorAfter = null;
+  const detail = () => ({ anchorBefore, anchorAfter, steps });
   let errorText = opts.errorText ?? null;
   let testId = null;
 
   if (!errorText && opts.robotOutputXml) {
     const failures = await failedTestsFromOutputXml(opts.robotOutputXml);
     if (failures.length === 0) {
-      return { verdict: 'no-anchor', anchor: null, testId, rerun: null, classification: null, recommendation: null, temporal: null, notes: ['no failed test in output.xml'] };
+      return { verdict: 'no-anchor', anchor: null, testId, rerun: null, classification: null, recommendation: null, temporal: null, notes: ['no failed test in output.xml'], detail: detail() };
     }
     errorText = failures[0].message;
     testId = failures[0].testId;
@@ -75,11 +80,14 @@ export async function triage(opts) {
 
   const anchor = extractAnchor(errorText ?? '');
   if (!anchor.selector) {
+    step('Anchor read from the error message', 'no locator found in the error', false);
     return {
       verdict: 'no-anchor', anchor, testId, rerun: null, classification: null, recommendation: null, temporal: null,
       notes: [...notes, 'no locator found in the error; cannot triage without an anchor'],
+      detail: detail(),
     };
   }
+  step('Anchor read from the error message', anchor.selector);
 
   if (anchor.kind === 'ambiguous') {
     notes.push('the failing locator matched multiple elements (strict mode violation); ambiguity itself is a fragility signal');
@@ -90,6 +98,7 @@ export async function triage(opts) {
   let rerun = null;
   if (opts.rerunCommand) {
     rerun = await rerunStats(opts.rerunCommand, opts.reruns ?? 3);
+    step('Reran the failing test', rerun.failures + '/' + rerun.runs + ' runs failed');
     if (rerun.failures === 0 || rerun.nondeterministic) {
       const why = rerun.failures === 0 ? 'test went green on every rerun' : 'test fails intermittently across reruns';
       notes.push(why);
@@ -103,6 +112,7 @@ export async function triage(opts) {
             notes.push(`temporal delay targets the css base "${target}" derived from the anchor`);
           }
           temporal = await temporalProbe(opts.rerunCommand, target);
+          step('Provoked a delay on the anchor', temporal.reproduced ? 'reproduced at ' + temporal.delay + ' ms' : 'no reproduction', temporal.reproduced);
           if (temporal.reproduced) {
             notes.push(`fails on every run when "${anchor.selector}" appears ${temporal.delay} ms late; likely a missing wait`);
           } else if (temporal.control && temporal.control.failures > 0) {
@@ -114,7 +124,7 @@ export async function triage(opts) {
           }
         }
       }
-      return { verdict: 'nondeterministic', anchor, testId, rerun, temporal, classification: null, recommendation: null, notes };
+      return { verdict: 'nondeterministic', anchor, testId, rerun, temporal, classification: null, recommendation: null, notes, detail: detail() };
     }
     if (rerun.commandBroken) {
       notes.push('every rerun exited with a spawn error or command-not-found; the rerun command itself looks broken and the rerun statistics are not meaningful');
@@ -128,22 +138,27 @@ export async function triage(opts) {
 
   const baseline = JSON.parse(await readFile(opts.baselinePath, 'utf8'));
   if (!baseline.html || !baseline.tree) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'baseline snapshot is missing tree or html'] };
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'baseline snapshot is missing tree or html'], detail: detail() };
   }
 
   const resolved = await resolveAnchorPath(baseline, anchor.selector);
   if (resolved.error) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'anchor selector could not be evaluated against the baseline'] };
+    step('Anchor located in the baseline', 'anchor selector could not be evaluated against the baseline', false);
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'anchor selector could not be evaluated against the baseline'], detail: detail() };
   }
   if (!resolved.path) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'anchor selector does not resolve in the baseline snapshot'] };
+    step('Anchor located in the baseline', 'anchor selector does not resolve in the baseline snapshot', false);
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'anchor selector does not resolve in the baseline snapshot'], detail: detail() };
   }
   if (resolved.count > 1) notes.push(`anchor selector matches ${resolved.count} baseline elements, using the first`);
+  step('Anchor located in the baseline', 'found at path ' + resolved.path.join('.'));
 
   const treeNode = nodeAt(baseline.tree, resolved.path);
   if (!treeNode || treeNode.tag !== resolved.tag || (treeNode.id ?? null) !== (resolved.id ?? null)) {
-    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'baseline html and serialized tree disagree at the anchor; cannot triage reliably'] };
+    step('Baseline html and tree checked for agreement', 'baseline html and serialized tree disagree at the anchor', false);
+    return { verdict: 'unclear', anchor, testId, rerun, classification: null, recommendation: null, temporal: null, notes: [...notes, 'baseline html and serialized tree disagree at the anchor; cannot triage reliably'], detail: detail() };
   }
+  step('Baseline html and tree checked for agreement', 'consistent');
 
   const current = opts.currentPath
     ? JSON.parse(await readFile(opts.currentPath, 'utf8'))
@@ -151,6 +166,9 @@ export async function triage(opts) {
 
   const classification = classifyDelta({ tree: baseline.tree, anchorPath: resolved.path }, current, anchor.selector);
   const verdict = VERDICT_BY_CLASSIFICATION[classification.verdict];
+  anchorBefore = treeNode;
+  if (classification.match?.path) anchorAfter = nodeAt(current.tree, classification.match.path);
+  step('Compared baseline and current build at the anchor', classification.verdict);
 
   let recommendation = null;
   if (verdict === 'fragile') {
@@ -160,6 +178,7 @@ export async function triage(opts) {
     } else if (opts.currentUrl && classification.match?.path) {
       try {
         recommendation = await proveCandidates(opts.currentUrl, classification.match.path, candidates);
+        step('Proved candidates in a real browser', recommendation.length + ' candidates tested');
       } catch (err) {
         recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null }));
         notes.push('could not prove candidates against the current build: ' + err.message);
@@ -167,8 +186,9 @@ export async function triage(opts) {
     } else {
       recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null }));
       notes.push('candidates are uniqueness-checked against the baseline only; text and role uniqueness is approximated, not verified; pass a current URL to prove them against mutations');
+      step('Candidates checked against the baseline only', candidates.length + ' candidates, not proven', false);
     }
   }
 
-  return { verdict, anchor, testId, rerun, classification, recommendation, temporal: null, notes };
+  return { verdict, anchor, testId, rerun, classification, recommendation, temporal: null, notes, detail: detail() };
 }
