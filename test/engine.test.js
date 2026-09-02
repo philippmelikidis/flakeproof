@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startFixtureServer } from './helpers/serve.js';
 import { captureSnapshot } from '../src/snapshot.js';
-import { triage } from '../src/triage/engine.js';
+import { triage, fragileCandidateSource } from '../src/triage/engine.js';
 
 const ROBOT_OUTPUT_FAIL = fileURLToPath(new URL('./fixtures/rf/output-fail.xml', import.meta.url));
 const FIXTURE_DIR = fileURLToPath(new URL('./fixtures/page/', import.meta.url));
@@ -361,4 +361,97 @@ test('a fragile verdict records both anchor states and the proving step', async 
     await v2.close();
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// A pair of custom fixture pages where the anchor's hashed class changes
+// (so classification stays cosmetic/fragile) AND a second, non-hashed class
+// on the very same element also changes name, independently of the
+// classification-relevant class. The prover is never consulted here
+// (currentPath, no currentUrl): the only way a candidate selector can name
+// the CURRENT class is if candidate generation itself reads the current
+// tree. If it read the baseline tree instead, it would produce the stale
+// baseline class name, which does not exist in the current build at all.
+async function writeRenamedClassPages(dir) {
+  const baselineHtml =
+    '<!doctype html><html><head><meta charset="utf-8"><title>t</title></head><body>' +
+    '<ul>' +
+    '<li class="css-1a2b3c marker-old"><a href="/a/">A</a></li>' +
+    '<li class="css-9z8y7x marker-two"><a href="/b/">B</a></li>' +
+    '</ul></body></html>';
+  const currentHtml =
+    '<!doctype html><html><head><meta charset="utf-8"><title>t</title></head><body>' +
+    '<ul>' +
+    '<li class="css-q1w2e3 marker-new"><a href="/a/">A</a></li>' +
+    '<li class="css-r4t5z6 marker-two"><a href="/b/">B</a></li>' +
+    '</ul></body></html>';
+  const baselineDir = join(dir, 'baseline-page');
+  const currentDir = join(dir, 'current-page');
+  await mkdir(baselineDir, { recursive: true });
+  await mkdir(currentDir, { recursive: true });
+  await writeFile(join(baselineDir, 'index.html'), baselineHtml);
+  await writeFile(join(currentDir, 'index.html'), currentHtml);
+  return { baselineDir, currentDir };
+}
+
+test('a fragile verdict builds candidates from the current tree, not the stale baseline class', async () => {
+  let dir = null;
+  let baselineServer = null;
+  let currentServer = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-rename-'));
+    const { baselineDir, currentDir } = await writeRenamedClassPages(dir);
+    baselineServer = await startFixtureServer({ root: baselineDir });
+    currentServer = await startFixtureServer({ root: currentDir });
+
+    const baselinePath = join(dir, 'baseline.json');
+    await writeFile(baselinePath, JSON.stringify(await captureSnapshot(baselineServer.url)));
+    const currentPath = join(dir, 'current.json');
+    await writeFile(currentPath, JSON.stringify(await captureSnapshot(currentServer.url)));
+
+    const result = await triage({
+      errorText: timeoutError('li.css-1a2b3c'),
+      baselinePath,
+      currentPath,
+    });
+
+    assert.equal(result.verdict, 'fragile');
+    const selectors = result.recommendation.map((c) => c.selector);
+    assert.ok(
+      selectors.includes('li.marker-new'),
+      `expected a candidate built from the current markup, got: ${selectors.join(', ')}`,
+    );
+    assert.ok(
+      !selectors.includes('li.marker-old'),
+      `candidate must not reflect the stale baseline class, got: ${selectors.join(', ')}`,
+    );
+    assert.ok(
+      result.detail.steps.some((s) => /current tree/i.test(s.label) || /current tree/i.test(s.outcome)),
+      'the step log must name which tree candidates came from',
+    );
+  } finally {
+    await baselineServer?.close();
+    await currentServer?.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// classifyDelta's own contract guarantees that a 'cosmetic' verdict (which
+// triage maps to 'fragile') always carries a match: the "no confident
+// match" branch in classify.js only ever returns 'semantic' or 'unclear',
+// never 'cosmetic'. So the "no classification.match.path" case cannot be
+// reached today through triage() with a real classifyDelta result. It is
+// still guarded defensively in engine.js (never trust an invariant in
+// another module to hold forever), so it is unit-tested directly against
+// the small decision function rather than via a contrived end-to-end
+// fixture that cannot actually produce this combination.
+test('fragileCandidateSource refuses to fall back to the baseline when there is no current-build match', () => {
+  const current = { tree: { tag: 'html', path: [], children: [] } };
+  assert.equal(fragileCandidateSource({ match: null }, current), null);
+  assert.equal(fragileCandidateSource({}, current), null);
+});
+
+test('fragileCandidateSource points at the current tree when a match exists', () => {
+  const current = { tree: { tag: 'html', path: [], children: [] } };
+  const source = fragileCandidateSource({ match: { path: [0, 1] } }, current);
+  assert.deepEqual(source, { tree: current.tree, path: [0, 1] });
 });

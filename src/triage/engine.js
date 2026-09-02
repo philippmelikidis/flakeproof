@@ -16,6 +16,22 @@ import { nodeAt } from './tree.js';
 
 const VERDICT_BY_CLASSIFICATION = { cosmetic: 'fragile', semantic: 'real-change', unclear: 'unclear' };
 
+// A recommendation is for the FUTURE build, so selector candidates must be
+// built from the CURRENT tree, at the anchor's current-build location. That
+// location only exists when classifyDelta found a confident match; without
+// one there is nothing current to build from. classifyDelta's own contract
+// happens to guarantee a match whenever its verdict is 'cosmetic' (the
+// no-match branch only ever returns 'semantic' or 'unclear'), so in
+// practice this never falls through to null today - but that is an
+// invariant of another module, not of this one, so it is checked here
+// explicitly rather than assumed. Never silently substitute the baseline
+// tree here: a candidate built from an element that may no longer exist in
+// the current build is exactly the staleness this function exists to avoid.
+export function fragileCandidateSource(classification, current) {
+  if (!classification?.match?.path) return null;
+  return { tree: current.tree, path: classification.match.path };
+}
+
 // The baseline was captured while the build was green, before the failing
 // selector was known. Resolve it now against the stored html via
 // page.locator, which understands Playwright selector syntax.
@@ -172,23 +188,35 @@ export async function triage(opts) {
 
   let recommendation = null;
   if (verdict === 'fragile') {
-    const candidates = candidatesFor(baseline.tree, resolved.path);
-    if (candidates.length === 0) {
-      notes.push('no provable selector candidates found for the anchor element');
-      step('Generated selector candidates', 'none could be verified for this element', false);
-    } else if (opts.currentUrl && classification.match?.path) {
-      try {
-        recommendation = await proveCandidates(opts.currentUrl, classification.match.path, candidates);
-        step('Proved candidates in a real browser', recommendation.length + ' candidates tested');
-      } catch (err) {
-        recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null, unproven: 'failed' }));
-        notes.push('could not prove candidates against the current build: ' + err.message);
-        step('Proved candidates in a real browser', 'failed: ' + err.message, false);
-      }
+    const source = fragileCandidateSource(classification, current);
+    if (!source) {
+      notes.push(
+        'no candidates generated: the anchor element could not be re-identified in the current build, so ' +
+          'building candidates from the stale baseline would repeat exactly the staleness this check exists to avoid',
+      );
+      step('Generated selector candidates', 'skipped: no matching element found in the current build', false);
     } else {
-      recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null, unproven: 'no-url' }));
-      notes.push('candidates are uniqueness-checked against the baseline only; text and role uniqueness is approximated, not verified; pass a current URL to prove them against mutations');
-      step('Candidates checked against the baseline only', candidates.length + ' candidates, not proven', false);
+      const candidates = candidatesFor(source.tree, source.path);
+      if (candidates.length === 0) {
+        notes.push('no provable selector candidates found for the anchor element');
+        step('Generated selector candidates from the current tree', 'none could be verified for this element', false);
+      } else if (opts.currentUrl) {
+        try {
+          recommendation = await proveCandidates(opts.currentUrl, source.path, candidates);
+          step('Proved candidates from the current tree in a real browser', recommendation.length + ' candidates tested');
+        } catch (err) {
+          recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null, unproven: 'failed' }));
+          notes.push('could not prove candidates against the current build: ' + err.message);
+          step('Proved candidates from the current tree in a real browser', 'failed: ' + err.message, false);
+        }
+      } else {
+        recommendation = candidates.map((c) => ({ ...c, uniqueInCurrent: null, survived: null, applied: null, unproven: 'no-url' }));
+        notes.push(
+          "candidates were built from the current build's tree; text and role uniqueness is approximated, not " +
+            'verified; pass a current URL to prove them against mutations',
+        );
+        step('Generated selector candidates from the current tree', candidates.length + ' candidates, not proven', false);
+      }
     }
   }
 
