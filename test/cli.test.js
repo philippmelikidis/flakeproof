@@ -18,15 +18,27 @@ test('renderReport shows verdict, evidence and recommendation table', () => {
     rerun: { runs: 3, failures: 3, exitCodes: [1, 1, 1] },
     classification: { verdict: 'cosmetic', reasons: ['selector relies on build-generated class ".css-1a2b3c" which is gone from the element'] },
     recommendation: [{ selector: '#main-nav li:nth-child(1)', kind: 'positional', uniqueInCurrent: true, survived: 4, applied: 5 }],
-    temporal: { reproduced: true, delay: 500, tried: [{ delay: 250, failures: 0, runs: 2 }, { delay: 500, failures: 2, runs: 2 }] },
+    temporal: {
+      reproduced: true,
+      delay: 500,
+      // Deliberately different matched counts per round: the report must
+      // surface the per-round count (item F), which is exactly the evidence
+      // that would expose a bug like "matched N on every round" being
+      // claimed when the rounds actually disagreed (item C).
+      tried: [
+        { delay: 250, failures: 0, runs: 2, matched: 3, ruleLive: true },
+        { delay: 500, failures: 2, runs: 2, matched: 5, ruleLive: true },
+      ],
+    },
     notes: ['test failed on every rerun; deterministic failure'],
   });
   assert.ok(md.includes('**fragile**'));
   assert.ok(md.includes('`li.css-1a2b3c`'));
   assert.ok(md.includes('| `#main-nav li:nth-child(1)` | positional | yes | 4/5 |'));
   assert.ok(md.includes('## Timing provocation'));
-  assert.ok(md.includes('- 500 ms: 2/2 runs failed (reproduces)'));
-  assert.ok(!md.includes('- 250 ms: 0/2 runs failed (reproduces)'));
+  assert.ok(md.includes('- 500 ms: 2/2 runs failed, 5 matched, rule live (reproduces)'));
+  assert.ok(md.includes('- 250 ms: 0/2 runs failed, 3 matched, rule live'));
+  assert.ok(!md.includes('- 250 ms: 0/2 runs failed, 3 matched, rule live (reproduces)'));
 });
 
 test('renderReport does not show empty Timing provocation section', () => {

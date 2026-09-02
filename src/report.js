@@ -34,7 +34,9 @@ export function renderReport(r) {
     lines.push('', '## Timing provocation');
     for (const t of r.temporal.tried) {
       const marker = r.temporal.reproduced && r.temporal.delay === t.delay ? ' (reproduces)' : '';
-      lines.push(`- ${t.delay} ms: ${t.failures}/${t.runs} runs failed${marker}`);
+      const matched = typeof t.matched === 'number' ? `${t.matched} matched` : 'match count unknown';
+      const ruleLive = t.ruleLive === true ? 'rule live' : t.ruleLive === false ? 'rule not live' : 'rule live: unknown';
+      lines.push(`- ${t.delay} ms: ${t.failures}/${t.runs} runs failed, ${matched}, ${ruleLive}${marker}`);
     }
   }
   if (r.notes?.length) {
