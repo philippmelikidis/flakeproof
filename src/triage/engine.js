@@ -13,6 +13,22 @@ import { temporalProbe } from './temporal-probe.js';
 import { temporalTargetFor } from './temporal-target.js';
 import { captureSnapshot } from '../snapshot.js';
 import { nodeAt } from './tree.js';
+import { nodeHtmlAtPath } from '../probe/snippet.js';
+
+// The tree no longer carries a per-node `html` snippet (see
+// src/probe/serialize.js). Reconstruct it on demand for exactly the node a
+// report needs, from the snapshot's own full-page `html` plus the node's
+// path - a plain string walk, so this also works for a snapshot loaded from
+// `--current <file>` with no browser involved. `fullHtml` can legitimately
+// be absent (a stripped or hand-built snapshot); nodeHtmlAtPath already
+// degrades to null rather than guessing, and the report renders an honest
+// "no html snippet" message for a node with no `html` field instead of a
+// blank card.
+function withHtmlSnippet(node, fullHtml) {
+  if (!node) return node;
+  const html = nodeHtmlAtPath(fullHtml, node.path);
+  return html ? { ...node, html } : node;
+}
 
 const VERDICT_BY_CLASSIFICATION = { cosmetic: 'fragile', semantic: 'real-change', unclear: 'unclear' };
 
@@ -189,8 +205,10 @@ export async function triage(opts) {
 
   const classification = classifyDelta({ tree: baseline.tree, anchorPath: resolved.path }, current, anchor.selector);
   const verdict = VERDICT_BY_CLASSIFICATION[classification.verdict];
-  anchorBefore = treeNode;
-  if (classification.match?.path) anchorAfter = nodeAt(current.tree, classification.match.path);
+  anchorBefore = withHtmlSnippet(treeNode, baseline.html);
+  if (classification.match?.path) {
+    anchorAfter = withHtmlSnippet(nodeAt(current.tree, classification.match.path), current.html);
+  }
   step('Compared baseline and current build at the anchor', classification.verdict);
 
   let recommendation = null;
