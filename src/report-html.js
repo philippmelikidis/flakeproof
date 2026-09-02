@@ -29,14 +29,115 @@ function describe(node, missingText) {
   return parts.join(', ');
 }
 
-// Marks the parts of `b` that differ from `a` word by word, so the reader can
-// see what actually changed instead of comparing two blocks by eye.
-function markDiff(a, b) {
-  const left = String(a ?? '').split(/(\s+)/);
-  const right = String(b ?? '').split(/(\s+)/);
-  return right
-    .map((tok) => (left.includes(tok) ? esc(tok) : `<mark>${esc(tok)}</mark>`))
-    .join('');
+// Tokenizes an html snippet into fine-grained units for diffing: tag
+// boundaries, individual attribute name/value pairs, and words/punctuation
+// of text content - not whitespace runs. Production markup ships minified
+// (no whitespace at all), so a whitespace split treats
+// `<li class="a"><span>Products</span></li>` as one giant token and any
+// attribute change marks the entire element. Splitting at tag and attribute
+// boundaries means only the attribute (or word) that actually changed gets
+// marked, even when nothing around it has any whitespace.
+function tokenizeTag(tag) {
+  const tokens = [];
+  const ATTR_RE = /<\/?[A-Za-z][\w-]*|[A-Za-z_:][\w:.-]*="[^"]*"|[A-Za-z_:][\w:.-]*='[^']*'|[A-Za-z_:][\w:.-]*(?=[\s/>])|\/?>/g;
+  let m;
+  while ((m = ATTR_RE.exec(tag))) tokens.push(m[0]);
+  return tokens;
+}
+
+function tokenizeText(text) {
+  return text.match(/[A-Za-z0-9]+|[^\sA-Za-z0-9]|\s+/g) || [];
+}
+
+function tokenize(html) {
+  const tokens = [];
+  const TAG_RE = /<\/?[^>]*>/g;
+  let lastIndex = 0;
+  let m;
+  while ((m = TAG_RE.exec(html))) {
+    if (m.index > lastIndex) tokens.push(...tokenizeText(html.slice(lastIndex, m.index)));
+    tokens.push(...tokenizeTag(m[0]));
+    lastIndex = TAG_RE.lastIndex;
+  }
+  if (lastIndex < html.length) tokens.push(...tokenizeText(html.slice(lastIndex)));
+  return tokens;
+}
+
+// Positional diff over two token arrays via longest common subsequence, so a
+// token that only moved position is never marked as changed, and a token
+// that really did change at a position where the OLD value happens to recur
+// elsewhere in the snippet is never silently ignored. `Array.includes`
+// (the previous approach) gets both of those wrong: it treats "does this
+// token exist anywhere in the other side" as "unchanged", which is true
+// neither for moves nor for repeats.
+function diffTokens(a, b) {
+  const n = a.length;
+  const m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const ops = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      ops.push({ type: 'equal', token: a[i] });
+      i += 1;
+      j += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ type: 'removed', token: a[i] });
+      i += 1;
+    } else {
+      ops.push({ type: 'added', token: b[j] });
+      j += 1;
+    }
+  }
+  while (i < n) { ops.push({ type: 'removed', token: a[i] }); i += 1; }
+  while (j < m) { ops.push({ type: 'added', token: b[j] }); j += 1; }
+  return ops;
+}
+
+// Renders one side of a diff, wrapping each maximal RUN of consecutive
+// same-type tokens in a single <mark> instead of one <mark> per token - a
+// changed attribute or word is almost always more than one token (tag open,
+// name="value", tag close), and marking each separately would chop a single
+// logical change into several adjacent <mark> elements with nothing
+// visibly different about the seam, which is confusing and (for a run that
+// is itself a whole tag) breaks the tag's own text back apart in the
+// rendered escaped output.
+function renderSide(ops, markType, markClass) {
+  let out = '';
+  let run = '';
+  const flush = () => {
+    if (run) out += `<mark class="${markClass}">${run}</mark>`;
+    run = '';
+  };
+  for (const o of ops) {
+    if (o.type === markType) {
+      run += esc(o.token);
+    } else {
+      flush();
+      out += esc(o.token);
+    }
+  }
+  flush();
+  return out;
+}
+
+// Renders both sides of a diff: the before side marks what disappeared with
+// `diff-removed`, the after side marks what showed up with `diff-added`.
+// Two distinct classes (styled differently, with a legend) so a reader can
+// tell removal from addition at a glance instead of one undifferentiated
+// <mark>, which is what the report spec asks for ("entfernte und
+// hinzugekommene Teile hervorgehoben").
+function diffSnippets(beforeHtml, afterHtml) {
+  const ops = diffTokens(tokenize(beforeHtml), tokenize(afterHtml));
+  const before = renderSide(ops.filter((o) => o.type !== 'added'), 'removed', 'diff-removed');
+  const after = renderSide(ops.filter((o) => o.type !== 'removed'), 'added', 'diff-added');
+  return { before, after };
 }
 
 const CSS = `
@@ -59,6 +160,10 @@ const CSS = `
   pre { background: #f4f2ef; border: 1px solid #e6e1db; border-radius: 8px;
         padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; }
   mark { background: #ffe9a8; padding: 0 2px; border-radius: 3px; }
+  mark.diff-removed { background: #fde2e1; color: #9b2c2c; text-decoration: line-through; }
+  mark.diff-added { background: #d7f5df; color: #1f7a4d; text-decoration: none; }
+  .diff-legend { margin: 0 0 8px; }
+  .diff-legend mark { text-decoration: none; }
   ul.plain { list-style: none; padding: 0; margin: 0; }
   ul.plain li { padding: 8px 0; border-bottom: 1px solid #efece8; }
   ul.plain li:last-child { border-bottom: none; }
@@ -80,28 +185,30 @@ function section(title, body) {
 // without html capture) has no `html` field. Diffing against a missing
 // snippet would mark the entire other side as "changed", which is not true;
 // say so instead, and only diff when both sides actually have a snippet.
-function snippet(node, other) {
+function snippet(node, diffedHtml) {
   if (!node.html) {
     return '<p class="muted">No html snippet in this snapshot. Capture a fresh baseline to see the difference highlighted.</p>';
   }
-  if (!other?.html) {
-    return `<pre>${esc(node.html)}</pre>`;
-  }
-  return `<pre>${markDiff(other.html, node.html)}</pre>`;
+  return `<pre>${diffedHtml ?? esc(node.html)}</pre>`;
 }
 
 function beforeAfter(detail) {
   const before = detail?.anchorBefore;
   const after = detail?.anchorAfter;
-  const card = (label, node, other, missingText) => `
+  const diffed = before?.html && after?.html ? diffSnippets(before.html, after.html) : null;
+  const hasMarks = diffed && (diffed.before.includes('<mark') || diffed.after.includes('<mark'));
+  const card = (label, node, diffedHtml, missingText) => `
     <div class="card">
       <div class="muted">${esc(label)}</div>
       <p>${describe(node, missingText)}</p>
-      ${node ? snippet(node, other) : ''}
+      ${node ? snippet(node, diffedHtml) : ''}
     </div>`;
-  return `<div class="grid">
-    ${card('Before, in the green build', before, null, 'flakeproof did not look at any element here.')}
-    ${card('Now, in the current build', after, before, 'No element matched here in the current build.')}
+  const legend = hasMarks
+    ? '<p class="diff-legend muted"><mark class="diff-removed">removed</mark> <mark class="diff-added">added</mark></p>'
+    : '';
+  return `${legend}<div class="grid">
+    ${card('Before, in the green build', before, diffed?.before, 'flakeproof did not look at any element here.')}
+    ${card('Now, in the current build', after, diffed?.after, 'No element matched here in the current build.')}
   </div>`;
 }
 

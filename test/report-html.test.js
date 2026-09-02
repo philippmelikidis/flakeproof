@@ -152,6 +152,82 @@ test('proof outcomes render as mutation names with yes or no', () => {
   assert.ok(html.includes('move-to-end no'));
 });
 
+// Extracts the inner content of every <mark ...>...</mark> in the given
+// html, regardless of which diff class it carries.
+function markContents(html) {
+  return [...html.matchAll(/<mark[^>]*>(.*?)<\/mark>/gs)].map((m) => m[1]);
+}
+
+test('a minified attribute change marks only the changed value, not the whole element', () => {
+  const minified = {
+    ...fragile,
+    detail: {
+      ...fragile.detail,
+      anchorBefore: { tag: 'li', id: null, classes: [], text: '', attrs: {}, html: '<li class="a"><span>Products</span></li>' },
+      anchorAfter: { tag: 'li', id: null, classes: [], text: '', attrs: {}, html: '<li class="b"><span>Products</span></li>' },
+    },
+  };
+  const html = renderHtmlReport(minified);
+  const marks = markContents(html);
+  assert.ok(marks.length > 0, 'the changed attribute value must be marked');
+  for (const m of marks) {
+    assert.ok(!m.includes('&lt;span&gt;') && !m.includes('<span>'), `mark must be tight, got: ${m}`);
+  }
+});
+
+test('a word removed between before and after is marked in the before card', () => {
+  const html = renderHtmlReport({
+    ...fragile,
+    detail: {
+      ...fragile.detail,
+      anchorBefore: { tag: 'p', id: null, classes: [], text: '', attrs: {}, html: '<p>hello brave world</p>' },
+      anchorAfter: { tag: 'p', id: null, classes: [], text: '', attrs: {}, html: '<p>hello world</p>' },
+    },
+  });
+  const beforeSection = html.split('Now, in the current build')[0];
+  const marks = [...beforeSection.matchAll(/<mark class="diff-removed">([^<]*)<\/mark>/g)].map((m) => m[1]);
+  assert.ok(marks.some((m) => m.includes('brave')), `expected "brave" in a removed mark, got: ${JSON.stringify(marks)}`);
+});
+
+test('a word added between before and after is marked in the after card', () => {
+  const html = renderHtmlReport({
+    ...fragile,
+    detail: {
+      ...fragile.detail,
+      anchorBefore: { tag: 'p', id: null, classes: [], text: '', attrs: {}, html: '<p>hello world</p>' },
+      anchorAfter: { tag: 'p', id: null, classes: [], text: '', attrs: {}, html: '<p>hello brave world</p>' },
+    },
+  });
+  const afterSection = html.split('Now, in the current build')[1];
+  const marks = [...afterSection.matchAll(/<mark class="diff-added">([^<]*)<\/mark>/g)].map((m) => m[1]);
+  assert.ok(marks.some((m) => m.includes('brave')), `expected "brave" in an added mark, got: ${JSON.stringify(marks)}`);
+});
+
+test('diffed snippets stay escaped: no executable script tag reaches the output', () => {
+  const html = renderHtmlReport({
+    ...fragile,
+    detail: {
+      ...fragile.detail,
+      anchorBefore: { tag: 'div', id: null, classes: [], text: '', attrs: {}, html: '<div>safe</div>' },
+      anchorAfter: { tag: 'div', id: null, classes: [], text: '', attrs: {}, html: '<div><script>alert(1)</script></div>' },
+    },
+  });
+  assert.ok(!/<script(?!\w)/i.test(html), 'no executable script tag may reach the output');
+  assert.ok(html.includes('&lt;script&gt;'), 'the script tag must be shown as escaped text');
+});
+
+test('identical before and after produce no marks at all', () => {
+  const html = renderHtmlReport({
+    ...fragile,
+    detail: {
+      ...fragile.detail,
+      anchorBefore: { tag: 'li', id: null, classes: ['css-1a2b3c'], text: '', attrs: {}, html: '<li class="css-1a2b3c"><a href="/x">Same</a></li>' },
+      anchorAfter: { tag: 'li', id: null, classes: ['css-1a2b3c'], text: '', attrs: {}, html: '<li class="css-1a2b3c"><a href="/x">Same</a></li>' },
+    },
+  });
+  assert.ok(!html.includes('<mark'), 'identical snippets must produce no marks');
+});
+
 test('a verdict without detail still renders every mandatory section', () => {
   const bare = {
     verdict: 'no-anchor',
