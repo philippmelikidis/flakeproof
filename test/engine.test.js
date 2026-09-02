@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startFixtureServer } from './helpers/serve.js';
 import { captureSnapshot } from '../src/snapshot.js';
-import { triage, fragileCandidateSource } from '../src/triage/engine.js';
+import { triage, fragileCandidateSource, withHtmlSnippet } from '../src/triage/engine.js';
 
 const ROBOT_OUTPUT_FAIL = fileURLToPath(new URL('./fixtures/rf/output-fail.xml', import.meta.url));
 const FIXTURE_DIR = fileURLToPath(new URL('./fixtures/page/', import.meta.url));
@@ -513,4 +513,60 @@ test('fragileCandidateSource points at the current snapshot when a match exists'
   const current = { tree: { tag: 'html', path: [], children: [] }, snapshotVersion: 1 };
   const source = fragileCandidateSource({ match: { path: [0, 1] } }, current);
   assert.deepEqual(source, { snapshot: current, path: [0, 1] });
+});
+
+// withHtmlSnippet is the glue Fix 3 lives in: it decides between three
+// outcomes, and it is the only place that decides them, so it is tested
+// directly rather than only through a full triage() run (reproducing a
+// genuine scanner failure end-to-end is hard on purpose - browsers
+// normalize markup before ever handing back outerHTML, so most malformed
+// input never survives to become a snapshot's `html` field at all).
+describe('withHtmlSnippet', () => {
+  test('a null node passes through untouched, no note pushed', () => {
+    const notes = [];
+    assert.equal(withHtmlSnippet(null, '<html></html>', 'before', notes), null);
+    assert.deepEqual(notes, []);
+  });
+
+  test('old-format snapshot (no fullHtml at all): node is returned as-is, no note pushed', () => {
+    const notes = [];
+    const node = { tag: 'li', path: [0] };
+    const result = withHtmlSnippet(node, null, 'before', notes);
+    assert.deepEqual(result, node);
+    assert.equal('html' in result, false);
+    assert.equal('htmlUnresolved' in result, false);
+    assert.deepEqual(notes, [], 'a missing snapshot html is not a walk failure and must not be noted as one');
+  });
+
+  test('fullHtml present and the path resolves: the node gets its html, no note pushed', () => {
+    const notes = [];
+    const html = '<html><body><li id="x">hi</li></body></html>';
+    const node = { tag: 'li', path: [0, 0] };
+    const result = withHtmlSnippet(node, html, 'before', notes);
+    assert.equal(result.html, '<li id="x">hi</li>');
+    assert.equal('htmlUnresolved' in result, false);
+    assert.deepEqual(notes, []);
+  });
+
+  test('fullHtml present but the path does not resolve: htmlUnresolved is set and a note names the side', () => {
+    const notes = [];
+    const html = '<html><body><li id="x">hi</li></body></html>';
+    const node = { tag: 'li', path: [0, 99] }; // no such child
+    const result = withHtmlSnippet(node, html, 'before (baseline)', notes);
+    assert.equal(result.htmlUnresolved, true);
+    assert.equal('html' in result, false, 'no html field must be set when resolution failed');
+    assert.ok(
+      notes.some((note) => note.includes('could not be walked') && note.includes('before (baseline)')),
+      `expected a note naming the failure and the side, got: ${JSON.stringify(notes)}`,
+    );
+  });
+
+  test('fullHtml present but a tag mismatch is caught by the self-check: htmlUnresolved is set', () => {
+    const notes = [];
+    const html = '<html><body><div id="x">hi</div></body></html>';
+    const node = { tag: 'li', path: [0, 0] }; // the tree says li, the html has a div here
+    const result = withHtmlSnippet(node, html, 'after (current)', notes);
+    assert.equal(result.htmlUnresolved, true);
+    assert.ok(notes.some((note) => note.includes('could not be walked')));
+  });
 });

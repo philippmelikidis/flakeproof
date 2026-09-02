@@ -2,13 +2,23 @@
 // no imports, no references to module scope.
 export function serializeDom(anchorSelector) {
   const MAX_TEXT = 120;
-  const MAX_HTML = 400;
   // Bumped whenever the meaning of a per-node field changes in a way that
   // would make an older snapshot silently mislead a newer reader (e.g. the
   // exactness gate below). Keep in sync with CURRENT_SNAPSHOT_VERSION in
   // src/triage/candidates.js - that module cannot import this one (this
   // function is stringified into the page), so the two are hand-synced.
-  const SNAPSHOT_VERSION = 1;
+  // Bumped to 2 when the per-node `html` field was removed (see below):
+  // every node used to carry a bounded outerHTML snippet, which on the
+  // 21-node fixture more than doubled the snapshot's size and, since every
+  // ancestor serializes its whole subtree first via outerHTML, is reasoned
+  // (not measured) to grow superlinearly with nesting depth on large pages.
+  // Only two nodes per report (the anchor
+  // before and after) ever consumed it. Report time now reconstructs those
+  // two snippets on demand from the snapshot's top-level `html` (the full
+  // page, stored once) plus the node's `path`, via
+  // src/probe/snippet.js#nodeHtmlAtPath - a plain string walk that needs no
+  // browser, so it also works for the "unproven" `--current <file>` path.
+  const SNAPSHOT_VERSION = 2;
 
   // header/footer are unconditional landmarks only at the page level; inside
   // sectioning content they are scoped to that section and have no implicit
@@ -148,7 +158,6 @@ export function serializeDom(anchorSelector) {
       text: own.text,
       name: acc.name,
       role: el.getAttribute('role') || implicitRole(el) || '',
-      html: el.outerHTML.length > MAX_HTML ? el.outerHTML.slice(0, MAX_HTML) + ' ...' : el.outerHTML,
       path,
       children,
     };

@@ -247,6 +247,54 @@ test('weak-identity element (no id/text/href of its own) is now re-identified vi
   assert.ok(r.match, 'locality must now enable matching of bare li');
 });
 
+test('a weak-identity element whose name is nowhere in the current build is confidently reported as removed', () => {
+  // Same shape as the "other <li> elements survive" hedge case, but this
+  // time the removed element's name ("Solutions") does not show up
+  // anywhere in the current tree - not on any node's own computed name,
+  // not in any node's own text. That is real evidence the element itself,
+  // not just its class or position, is gone: were it merely renamed or
+  // moved, some node in the current build would still carry that content.
+  // The weak-identity hedge exists to cover a rename/move that this exact
+  // check can now rule out, so the verdict should be a confident 'semantic'
+  // (real-change), not 'unclear'.
+  const before = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [
+            n('a', { text: 'Products', attrs: { href: '/products/' } }),
+          ]),
+          n('li', { classes: ['css-9z8y7x', 'nav-item'], name: 'Solutions' }, [
+            n('a', { text: 'Solutions', attrs: { href: '/solutions/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    [0, 0, 1], // body > ul > li(Solutions)
+  );
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [
+            n('a', { text: 'Products', attrs: { href: '/products/' } }),
+          ]),
+          n('li', { classes: ['css-4d5e6f', 'nav-item'] }, [
+            n('a', { text: 'Company', attrs: { href: '/company/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'li.css-9z8y7x');
+  assert.equal(r.verdict, 'semantic');
+  assert.ok(
+    r.reasons.some((msg) => msg.includes('no longer exists in current build')),
+    `expected a confident removal reason, got: ${JSON.stringify(r.reasons)}`,
+  );
+});
+
 test('a bare li whose child text was merely reworded is not falsely reported as removed', () => {
   // Reproduces a false positive: the accessible `name` on a node is now
   // derived from the whole subtree (see src/probe/serialize.js), so it is
@@ -330,6 +378,141 @@ test('sibling slide-in with equal text next to cosmetic evidence -> unclear', ()
   );
   const r = classifyDelta(before, after, 'a.css-1a2b3c');
   assert.equal(r.verdict, 'unclear');
+});
+
+// The removal check used to be a raw case-sensitive substring test
+// (`current.name.includes(target.name)`), which turned a mere copy edit
+// into a confident (and wrong) 'semantic' verdict for every row below
+// except the first. This mirrors the exact shape of "a weak-identity
+// element whose name is nowhere in the current build is confidently
+// reported as removed" above: the anchor is a bare <li> (no id/own-text/
+// href/aria-label) whose only identity signal is its subtree-computed
+// `name`, "Solutions"; findBestMatch fails to clear the confidence
+// threshold (class churn plus a changed child text/href), so the removal
+// check is what decides the verdict. Only the SURVIVING li's name/text
+// varies per row.
+function survivalCase(currentName) {
+  const navTree = () =>
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [n('a', { text: 'Products', attrs: { href: '/products/' } })]),
+          n('li', { classes: ['css-9z8y7x', 'nav-item'], name: 'Solutions' }, [
+            n('a', { text: 'Solutions', attrs: { href: '/solutions/' } }),
+          ]),
+        ]),
+      ]),
+    ]);
+  const before = snap(navTree(), [0, 0, 1]); // body > ul > li(Solutions)
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [n('a', { text: 'Products', attrs: { href: '/products/' } })]),
+          n('li', { classes: ['css-4d5e6f', 'nav-item'], name: currentName }, [
+            n('a', { text: currentName, attrs: { href: '/company/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  return classifyDelta(before, after, 'li.css-9z8y7x');
+}
+
+const survivalTable = [
+  ['Our Solutions', 'unclear'],
+  ['solutions', 'unclear'],
+  ['SOLUTIONS', 'unclear'],
+  ['Solution', 'unclear'],
+  ['Sol utions', 'unclear'],
+];
+
+for (const [currentName, expected] of survivalTable) {
+  test(`removal check: current name "${currentName}" -> ${expected} (not a confident removal)`, () => {
+    const r = survivalCase(currentName);
+    assert.equal(r.verdict, expected);
+    assert.ok(
+      !r.reasons.some((msg) => msg.includes('no longer exists in current build')),
+      `"${currentName}" is a near-miss of the target name and must not be reported as removed, got: ${JSON.stringify(r.reasons)}`,
+    );
+  });
+}
+
+test('removal check: a name found nowhere at all is still a confident removal', () => {
+  const r = survivalCase('Company');
+  assert.equal(r.verdict, 'semantic');
+  assert.ok(r.reasons.some((msg) => msg.includes('no longer exists in current build')));
+});
+
+test('removal check: a truncated target name (at the MAX_TEXT cap) cannot support a confident removal', () => {
+  // serialize.js caps name/text at MAX_TEXT (120 chars). A name landing
+  // exactly on that cap may have been silently truncated, so failing to
+  // find the truncated prefix elsewhere proves nothing about the real,
+  // untruncated name - hedge instead of claiming removal.
+  const truncatedName = 'S'.repeat(120);
+  const before = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [n('a', { text: 'Products', attrs: { href: '/products/' } })]),
+          n('li', { classes: ['css-9z8y7x', 'nav-item'], name: truncatedName }, [
+            n('a', { text: truncatedName, attrs: { href: '/x/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    [0, 0, 1],
+  );
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [n('a', { text: 'Products', attrs: { href: '/products/' } })]),
+          n('li', { classes: ['css-4d5e6f', 'nav-item'], name: 'Company' }, [n('a', { text: 'Company', attrs: { href: '/company/' } })]),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'li.css-9z8y7x');
+  assert.equal(r.verdict, 'unclear');
+  assert.ok(!r.reasons.some((msg) => msg.includes('no longer exists in current build')));
+});
+
+test('removal check: an inexact target name (nameInexact) cannot support a confident removal', () => {
+  // nameInexact means accessibleName's textContent shortcut already
+  // disagreed with the real accname algorithm at capture time (see
+  // serialize.js#subtreeNameIsExact); searching for a name that might not
+  // even be the element's real name cannot support a confident conclusion
+  // either way, even when that exact string is nowhere in the current tree.
+  const before = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [n('a', { text: 'Products', attrs: { href: '/products/' } })]),
+          n('li', { classes: ['css-9z8y7x', 'nav-item'], name: 'Solutions', nameInexact: true }, [
+            n('a', { text: 'Solutions', attrs: { href: '/solutions/' } }),
+          ]),
+        ]),
+      ]),
+    ]),
+    [0, 0, 1],
+  );
+  const after = snap(
+    n('html', {}, [
+      n('body', {}, [
+        n('ul', { id: 'main-nav' }, [
+          n('li', { classes: ['css-1a2b3c', 'nav-item'] }, [n('a', { text: 'Products', attrs: { href: '/products/' } })]),
+          n('li', { classes: ['css-4d5e6f', 'nav-item'], name: 'Company' }, [n('a', { text: 'Company', attrs: { href: '/company/' } })]),
+        ]),
+      ]),
+    ]),
+    null,
+  );
+  const r = classifyDelta(before, after, 'li.css-9z8y7x');
+  assert.equal(r.verdict, 'unclear');
+  assert.ok(!r.reasons.some((msg) => msg.includes('no longer exists in current build')));
 });
 
 test('ancestor id renamed, selector relies on it -> unclear', () => {

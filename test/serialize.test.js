@@ -82,7 +82,17 @@ test('serializeDom emits explicit and implicit roles', async () => {
   }
 });
 
-test('serializeDom captures a bounded html snippet per node', async () => {
+// A per-node `html` snippet used to be captured for EVERY node (see the old
+// version of this test), including the root - a ~404 byte duplicate of what
+// captureSnapshot already stores once, in full, as the snapshot's top-level
+// `html`. On the 21-node fixture that alone more than doubled the JSON, and
+// on real pages every ancestor serializing its whole subtree first
+// approaches quadratic cost. Exactly two nodes per report ever consumed it
+// (the anchor before and after), so the field was dropped entirely and the
+// two needed snippets are reconstructed on demand at report time from the
+// full-page html plus the node's path (src/probe/snippet.js). No node -
+// root included - should carry `html` anymore.
+test('serializeDom no longer stores a per-node html snippet, root included', async () => {
   let server = null;
   let browser = null;
   try {
@@ -91,10 +101,31 @@ test('serializeDom captures a bounded html snippet per node', async () => {
     const page = await browser.newPage();
     await page.goto(server.url);
     const snap = await page.evaluate(serializeDom, null);
+    assert.equal('html' in snap.tree, false, 'the root node must not carry a per-node html snippet');
     const cta = findNode(snap.tree, (x) => x.id === 'cta');
-    assert.ok(cta.html.startsWith('<a'), `expected an anchor snippet, got ${cta.html}`);
-    assert.ok(cta.html.includes('Contact us'));
-    assert.ok(cta.html.length <= 404, 'snippet must stay bounded');
+    assert.equal('html' in cta, false, 'a leaf node must not carry a per-node html snippet either');
+  } finally {
+    await browser?.close();
+    await server?.close();
+  }
+});
+
+// Regression guard against the per-node html cost creeping back in. The
+// fixture page has 21 nodes; before this change the serialized JSON was
+// 5967 bytes, after it is roughly a third of that. Assert a generous but
+// meaningful ceiling rather than the exact byte count, so unrelated field
+// additions do not make this test flaky.
+test('dropping the per-node html snippet shrinks the serialized snapshot', async () => {
+  let server = null;
+  let browser = null;
+  try {
+    server = await startFixtureServer();
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(server.url);
+    const snap = await page.evaluate(serializeDom, null);
+    const size = JSON.stringify(snap).length;
+    assert.ok(size < 4000, `expected the snapshot to shrink well below the old 5967 bytes, got ${size}`);
   } finally {
     await browser?.close();
     await server?.close();

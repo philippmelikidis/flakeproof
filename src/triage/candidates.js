@@ -6,8 +6,9 @@ import { HASHED_CLASS } from './classify.js';
 
 // Must match SNAPSHOT_VERSION in src/probe/serialize.js. That function is
 // stringified into the page for page.evaluate and cannot import this
-// constant, so the two are hand-synced; bump both together.
-export const CURRENT_SNAPSHOT_VERSION = 1;
+// constant, so the two are hand-synced; bump both together. Bumped to 2
+// alongside the removal of the per-node `html` field (see serialize.js).
+export const CURRENT_SNAPSHOT_VERSION = 2;
 
 // The accessible name is derived from subtree content only for these roles.
 // For every other role a name computed from the subtree is a fabrication and

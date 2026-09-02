@@ -13,6 +13,41 @@ import { temporalProbe } from './temporal-probe.js';
 import { temporalTargetFor } from './temporal-target.js';
 import { captureSnapshot } from '../snapshot.js';
 import { nodeAt } from './tree.js';
+import { nodeHtmlAtPath } from '../probe/snippet.js';
+
+// The tree no longer carries a per-node `html` snippet (see
+// src/probe/serialize.js). Reconstruct it on demand for exactly the node a
+// report needs, from the snapshot's own full-page `html` plus the node's
+// path - a plain string walk, so this also works for a snapshot loaded from
+// `--current <file>` with no browser involved. `fullHtml` can legitimately
+// be absent (a stripped or hand-built snapshot, e.g. an old-format baseline)
+// - that is the ONLY case the report should describe as "no html snippet in
+// this snapshot". When `fullHtml` IS present but the scanner still could not
+// resolve `node.path` (malformed markup, or a shape mismatch it caught via
+// the leading-tag self-check in nodeHtmlAtPath), that is a different,
+// honest failure: the snapshot does carry html, it just could not be walked
+// to this element. Marking the node with `htmlUnresolved` lets the report
+// say exactly that instead of falsely claiming the snapshot has no html at
+// all - and a note is pushed so the failure also reaches the Notes section
+// and the markdown report, not just the html one.
+//
+// Exported only so a unit test can call it directly (same convention as
+// fragileCandidateSource below): reproducing a genuine scanner failure
+// end-to-end through a real browser capture is hard on purpose, because
+// browsers normalize markup before ever handing back outerHTML, so a direct
+// test is the reliable way to pin this function's own note/flag behavior.
+export function withHtmlSnippet(node, fullHtml, label, notes) {
+  if (!node) return node;
+  const html = nodeHtmlAtPath(fullHtml, node.path, node.tag);
+  if (html) return { ...node, html };
+  if (fullHtml) {
+    notes.push(
+      `the stored page html could not be walked to the ${label} anchor element; the snippet is omitted rather than guessed`,
+    );
+    return { ...node, htmlUnresolved: true };
+  }
+  return node;
+}
 
 const VERDICT_BY_CLASSIFICATION = { cosmetic: 'fragile', semantic: 'real-change', unclear: 'unclear' };
 
@@ -189,8 +224,10 @@ export async function triage(opts) {
 
   const classification = classifyDelta({ tree: baseline.tree, anchorPath: resolved.path }, current, anchor.selector);
   const verdict = VERDICT_BY_CLASSIFICATION[classification.verdict];
-  anchorBefore = treeNode;
-  if (classification.match?.path) anchorAfter = nodeAt(current.tree, classification.match.path);
+  anchorBefore = withHtmlSnippet(treeNode, baseline.html, 'before (baseline)', notes);
+  if (classification.match?.path) {
+    anchorAfter = withHtmlSnippet(nodeAt(current.tree, classification.match.path), current.html, 'after (current)', notes);
+  }
   step('Compared baseline and current build at the anchor', classification.verdict);
 
   let recommendation = null;
