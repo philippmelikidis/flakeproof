@@ -21,7 +21,7 @@ test('id candidate survives every applicable cosmetic mutation', async () => {
   const server = await startFixtureServer();
   try {
     const snap = await anchorPathFor(server.url, '#cta');
-    const candidates = candidatesFor(snap.tree, snap.anchorPath);
+    const candidates = candidatesFor(snap, snap.anchorPath);
     const proven = await proveCandidates(server.url, snap.anchorPath, candidates);
     const top = proven[0];
     assert.equal(top.selector, '#cta');
@@ -37,7 +37,7 @@ test('positional candidate survives renames but not reordering', async () => {
   const server = await startFixtureServer();
   try {
     const snap = await anchorPathFor(server.url, 'li.css-1a2b3c');
-    const candidates = candidatesFor(snap.tree, snap.anchorPath);
+    const candidates = candidatesFor(snap, snap.anchorPath);
     const proven = await proveCandidates(server.url, snap.anchorPath, candidates);
     const positional = proven.find((c) => c.selector === '#main-nav li:nth-child(1)');
     assert.ok(positional, 'positional candidate must exist for the anonymous li');
@@ -52,7 +52,7 @@ test('text candidate survives cosmetic mutations but not the copy tweak', async 
   const server = await startFixtureServer();
   try {
     const snap = await anchorPathFor(server.url, 'li.css-1a2b3c > a');
-    const candidates = candidatesFor(snap.tree, snap.anchorPath);
+    const candidates = candidatesFor(snap, snap.anchorPath);
     const textCand = candidates.find((c) => c.kind === 'text');
     assert.ok(textCand, 'nav link must get a text candidate');
     assert.equal(textCand.selector, 'text="Products"');
@@ -72,7 +72,7 @@ test('id candidate outranks text after the copy tweak', async () => {
   const server = await startFixtureServer();
   try {
     const snap = await anchorPathFor(server.url, '#cta');
-    const candidates = candidatesFor(snap.tree, snap.anchorPath);
+    const candidates = candidatesFor(snap, snap.anchorPath);
     const proven = await proveCandidates(server.url, snap.anchorPath, candidates);
     assert.equal(proven[0].selector, '#cta');
     assert.equal(proven[0].survived, proven[0].applied, 'the id must survive the copy tweak');
