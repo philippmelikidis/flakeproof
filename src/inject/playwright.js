@@ -83,37 +83,54 @@ export function withTemporal(base) {
       }
 
       // Mutation injection (the blindspots probe). Same shape as the
-      // temporal block above, generalized from a match count to a single
-      // applied/not-applied boolean: a mutation is a one-shot edit, not a
-      // continuous rule, so there is nothing to recount later.
+      // temporal block above, generalized from a match count to a
+      // applied/survived/frame/found record: a mutation is closer to a
+      // one-shot edit than the temporal delay's continuous rule, but it can
+      // still be silently undone by the page afterwards (ordinary
+      // hydration), so `survived` is its own later-observed signal, never
+      // folded into `applied` (see src/probe/mutation-script.js).
       const mutationId = process.env.FLAKEPROOF_MUTATION_ID;
       const mutationSelector = process.env.FLAKEPROOF_MUTATION_SELECTOR;
       if (mutationId && mutationSelector) {
         const mutation = semanticMutations.find((m) => m.id === mutationId);
-        if (mutation) {
-          const mutationAckDir = process.env.FLAKEPROOF_MUTATION_ACK;
-          const writeMutationAck = async (applied) => {
-            if (!mutationAckDir) return;
-            const file = join(mutationAckDir, `${process.pid}-${randomUUID()}.json`);
-            await mkdir(mutationAckDir, { recursive: true })
-              .then(() => writeFile(file, JSON.stringify({ installed: true, applied })))
-              .catch(() => {});
-          };
+        const mutationAckDir = process.env.FLAKEPROOF_MUTATION_ACK;
+        const writeMutationAck = async (fields) => {
+          if (!mutationAckDir) return;
+          const file = join(mutationAckDir, `${process.pid}-${randomUUID()}.json`);
+          await mkdir(mutationAckDir, { recursive: true })
+            .then(() => writeFile(file, JSON.stringify({ installed: true, ...fields })))
+            .catch(() => {});
+        };
+        if (!mutation) {
+          // The env vars name a mutation id this copy of the catalog does
+          // not know about - most likely `flakeproof` and `flakeproof/inject`
+          // are different versions in the same project. Silently injecting
+          // nothing here would leave no ack at all, which measureBlindspots
+          // cannot tell apart from "the wrapper was never installed" - a
+          // completely different, misleading diagnosis. Say what actually
+          // happened instead.
+          await writeMutationAck({ applied: false, survived: null, frame: null, found: null, error: 'unknown-mutation-id' });
+        } else {
           if (mutationAckDir) {
-            // The page reports whether the mutation actually applied once
-            // the document has real content (see mutationScript). Registered
-            // before addInitScript so it exists by the time the injected
-            // script runs in any page this context creates.
-            await context.exposeBinding(MUTATION_REPORT_FN, (_source, applied) => writeMutationAck(applied)).catch(() => {});
+            // The page reports applied/survived/frame/found once the
+            // document has real content, and again after it settles (see
+            // mutationScript). Registered before addInitScript so it exists
+            // by the time the injected script runs in any page this context
+            // creates.
+            await context
+              .exposeBinding(MUTATION_REPORT_FN, (_source, applied, survived, frame, found) =>
+                writeMutationAck({ applied, survived, frame, found }),
+              )
+              .catch(() => {});
           }
           await context.addInitScript(mutationScript(mutation, mutationSelector, MUTATION_REPORT_FN));
-          // An initial receipt with an unknown `applied` proves installation
+          // An initial receipt with every field unknown proves installation
           // before any page has had a chance to report back - the same
           // honesty guarantee as the temporal ack above: if no page ever
           // reports (the test fails before the document finishes parsing),
           // this is what measureBlindspots reads, never a fabricated
           // false.
-          await writeMutationAck(null);
+          await writeMutationAck({ applied: null, survived: null, frame: null, found: null });
         }
       }
 

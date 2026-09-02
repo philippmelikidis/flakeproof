@@ -178,15 +178,15 @@ test('injects the mutation script and acknowledges installation before the appli
 
     const afterInstall = await readAcks(ackDir);
     assert.equal(afterInstall.length, 1);
-    assert.deepEqual(afterInstall[0], { installed: true, applied: null });
+    assert.deepEqual(afterInstall[0], { installed: true, applied: null, survived: null, frame: null, found: null });
 
-    await context.bindings.__flakeproofMutationApplied({}, true);
+    await context.bindings.__flakeproofMutationApplied({}, true, null, null, true);
     const afterReport = await readAcks(ackDir);
     assert.equal(afterReport.length, 2, 'the real report lands in its own file, the installation receipt survives');
     const sorted = [...afterReport].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const expected = [
-      { installed: true, applied: null },
-      { installed: true, applied: true },
+      { installed: true, applied: null, survived: null, frame: null, found: null },
+      { installed: true, applied: true, survived: null, frame: null, found: true },
     ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     assert.deepEqual(sorted, expected);
   } finally {
@@ -209,6 +209,32 @@ test('an unknown mutation id injects nothing, since the catalog entry does not e
   } finally {
     delete process.env.FLAKEPROOF_MUTATION_ID;
     delete process.env.FLAKEPROOF_MUTATION_SELECTOR;
+  }
+});
+
+test('an unknown mutation id still leaves a receipt saying so, instead of looking like a missing wrapper', async () => {
+  // Fix (Fix 8 in the review): a version mismatch between `flakeproof` and
+  // `flakeproof/inject` could previously leave no ack at all, which reads
+  // identically to "the wrapper was never installed" downstream - a
+  // completely different, misleading diagnosis. This must say what actually
+  // happened.
+  process.env.FLAKEPROOF_MUTATION_ID = 'not-a-real-mutation';
+  process.env.FLAKEPROOF_MUTATION_SELECTOR = '#header-title';
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-mutation-ack-'));
+  process.env.FLAKEPROOF_MUTATION_ACK = ackDir;
+  try {
+    const wrapped = withTemporal(stubBase());
+    const context = stubContext();
+    await runContextFixture(wrapped, context);
+    assert.equal(context.scripts.length, 0, 'there is no matching catalog entry to build a script from');
+    const acks = await readAcks(ackDir);
+    assert.equal(acks.length, 1);
+    assert.deepEqual(acks[0], { installed: true, applied: false, survived: null, frame: null, found: null, error: 'unknown-mutation-id' });
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    delete process.env.FLAKEPROOF_MUTATION_SELECTOR;
+    delete process.env.FLAKEPROOF_MUTATION_ACK;
+    await rm(ackDir, { recursive: true, force: true });
   }
 });
 

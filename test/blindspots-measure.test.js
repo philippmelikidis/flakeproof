@@ -129,7 +129,11 @@ test('a mutation that did not apply is excluded from the denominator, not folded
     assert.equal(result.counts.unnoticed, 1, 'the applied-but-unnoticed mutation, not the not-applied one');
     const notApplied = result.records.find((r) => r.id === 'change-href');
     assert.equal(notApplied.applied, false);
-    assert.equal(notApplied.noticed, false, 'a mutation that never touched the page cannot have made the suite red');
+    // "Noticed" is not a meaningful concept for an experiment that never
+    // happened - reporting `false` here would be a guessed guarantee the
+    // code never actually established (Fix 8 in the review); `null` (not
+    // applicable) is the honest answer.
+    assert.equal(notApplied.noticed, null, 'a mutation that never touched the page has nothing to be noticed or not');
   } finally {
     delete process.env.FP_RESULTS_PATH;
     delete process.env.FP_BEHAVIOR;

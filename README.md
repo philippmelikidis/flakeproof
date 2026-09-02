@@ -100,8 +100,9 @@ Honesty is a design rule here: `unclear` is a first-class verdict, abstaining be
     flakeproof baseline <url> [--out <file.json>]
     flakeproof run [--cmd <command>] [--url <url>] [--results <file>] [--reader playwright|robot]
                    [--baseline <file.json>] [--out <file.md|file.html>]
-    flakeproof blindspots [--cmd <command>] [--results <file>] [--reader playwright|robot]
+    flakeproof blindspots [--cmd <command>] [--results <file>] [--reader playwright]
                           --selectors <sel1,sel2,...> [--mutations <id1,id2,...>]
+                          [--runs <n>] [--budget <n>]
                           [--json] [--out <file.md|file.html>]
 
 Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or runtime errors. For run, the exit code is 0 when the suite was triaged, whether or not tests failed, and 1 when the setup was unusable or a flag was missing. For blindspots, the exit code is 1 whenever the honesty rules make it abstain (see below), and 0 whenever a score was actually printed.
@@ -144,15 +145,19 @@ or config-backed, in `flakeproof.config.json`:
     { "cmd": "npx playwright test", "results": "results.json",
       "blindspots": { "selectors": ["#header-title", "#cta"] } }
 
-Selectors are supplied by you, not guessed from a baseline or inferred as "interesting" - predictable input, and a report that can always name the exact element (in your own words) each mutation targeted, beats a heuristic that might silently target the wrong thing. Every `(selector, mutation)` pair from the catalog is one experiment.
+Selectors are supplied by you, not guessed from a baseline or inferred as "interesting" - predictable input, and a report that can always name the exact element (in your own words) each mutation targeted, beats a heuristic that might silently target the wrong thing. Every `(selector, mutation)` pair from the catalog is one experiment. A compound css selector list like `".a, .b"` is not supported as a single target yet: a comma followed by a space is rejected outright rather than silently guessed as two separate targets, since flakeproof cannot tell the two intents apart from the string alone. Write `--selectors ".a,.b"` (no space) if you meant two targets.
 
-The same `withTemporal` wrapper used for the temporal lane is the injection point here too (it now reacts to a second, independent set of `FLAKEPROOF_MUTATION_*` env vars); nothing new to wire up if you already use it.
+The same `withTemporal` wrapper used for the temporal lane is the injection point here too (it now reacts to a second, independent set of `FLAKEPROOF_MUTATION_*` env vars); nothing new to wire up if you already use it. Robot Framework suites are not supported yet: there is no injection wrapper for Robot (see issue #11), so `--reader robot` is rejected upfront rather than running a control pass that could never produce a real acknowledgment.
+
+By default every control run and every mutation round runs twice (`--runs`, default 2) and a round only counts as noticed when the suite is red on **every** run - a suite that is merely flaky for unrelated reasons cannot fabricate a perfect score just because one unlucky run happened to fail. A round whose runs disagree is reported as inconclusive, not unnoticed. `--budget <n>` caps the total number of suite invocations across the whole measurement; when the budget cuts the mutation list short, the report says exactly which experiments were skipped rather than looking like full coverage.
 
 Honesty rules this command will not bend on:
 
-- **A mutation that never actually touched the page does not count as unnoticed.** If the selector matched nothing, or the element had no `href` to change, that experiment did not happen. It is reported under "Not applied" and excluded from the score entirely - the denominator is always the number of mutations that actually applied, never the number attempted.
+- **A mutation that never actually touched the page does not count as unnoticed.** If the selector matched nothing (even after giving a client-rendered element a bounded chance to appear), or the element had no `href` to change, that experiment did not happen. It is reported under "Not applied" and excluded from the score entirely - the denominator is always the number of mutations that were both applied AND actually judged, never the number attempted.
+- **A mutation that applied but did not survive to the suite's own assertions does not count as unnoticed either.** Ordinary hydration (React, Vue, Svelte, client-side i18n) can silently rewrite the mutated node shortly after it was applied. flakeproof watches for that and reports it under "Reverted before assertions" instead - the suite never got a fair look at that change, so scoring it as blind would be dishonest.
+- **A round the suite disagreed with itself across is inconclusive, not scored either way.** Two coin flips must never fake causality: a mutation is only "noticed" when every run of that round was red, and the specific test named as the catcher must have been red on every one of those runs too.
 - **If the wrapper never acknowledges a run, flakeproof refuses to print a score.** A suite that stays green because flakeproof never reached the page is not a blind suite, it is an unmeasured one. The report tells you exactly how to install the wrapper instead.
-- **A suite that is already red before any mutation cannot be measured.** A control run without any mutation must pass first; a baseline that already fails aborts the measurement instead of attributing anything to a mutation.
+- **A suite that is already red, or unreliable, before any mutation cannot be measured.** Every control run must pass, and none may exit non-zero while its own result file claims zero failures (a reporter misconfiguration); either aborts the measurement instead of attributing anything to a mutation.
 
 What this tool cannot tell you: whether your assertions are *correct*, only whether they would notice a specific catalog of meaningful changes. A suite can score well here and still assert the wrong thing; blindspots only rules out one specific, common way of being wrong.
 

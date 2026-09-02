@@ -29,6 +29,13 @@ test('a suite that asserts on the mutated text notices change-text', async () =>
       resultsPath,
       selectors: ['#header-title'],
       mutations: ['change-text'],
+      // A single run per round here: this test is proving the base
+      // categorization against a real browser, not the multi-run agreement
+      // discipline (that has its own fast, deterministic coverage in
+      // test/blindspots-measure-hardening.test.js) - pinning this keeps a
+      // real-browser test from silently doubling in cost every time the
+      // library's own default changes.
+      runsPerRound: 1,
     });
     assert.equal(result.abstained, null, JSON.stringify(result));
     assert.equal(result.counts.attempted, 1);
@@ -58,6 +65,7 @@ test('a suite that asserts nothing meaningful does not notice change-text', asyn
       resultsPath,
       selectors: ['#header-title'],
       mutations: ['change-text'],
+      runsPerRound: 1,
     });
     assert.equal(result.abstained, null, JSON.stringify(result));
     assert.equal(result.counts.attempted, 1);
@@ -68,6 +76,39 @@ test('a suite that asserts nothing meaningful does not notice change-text', asyn
     assert.equal(record.applied, true);
     assert.equal(record.noticed, false);
     assert.deepEqual(record.redTests, []);
+  } finally {
+    delete process.env.FIXTURE_URL;
+    await server?.close();
+    await rm(resultsPath, { force: true });
+  }
+});
+
+// Fix 3's exact reproduction, run for real: a suite that IS sensitive to the
+// mutated text (identical assertion to notices.spec.js above) must never be
+// scored as blind just because an ordinary client-side re-render (see
+// test/fixtures/blindspots-page/hydrate.html - rewrites #header-title 50ms
+// after DOMContentLoaded) undid the mutation before the assertion ran.
+test('a suite sensitive to the mutation is never scored as blind when hydration undoes the mutation first', async () => {
+  let server = null;
+  try {
+    server = await startFixtureServer({ root: pageRoot });
+    process.env.FIXTURE_URL = server.url;
+    const result = await measureBlindspots({
+      cmd: COMMAND(join(here, 'fixtures', 'pw-blindspots', 'notices-hydrate.spec.js')),
+      reader: 'playwright',
+      resultsPath,
+      selectors: ['#header-title'],
+      mutations: ['change-text'],
+      runsPerRound: 1,
+    });
+    assert.equal(result.abstained, 'all-not-survived', JSON.stringify(result));
+    assert.equal(result.counts.applied, 1, 'the mutation did genuinely apply at DOMContentLoaded');
+    assert.equal(result.counts.notSurvived, 1);
+    assert.equal(result.counts.judged, 0);
+    const record = result.records[0];
+    assert.equal(record.applied, true);
+    assert.equal(record.survived, false);
+    assert.equal(record.noticed, null, 'never scored as unnoticed - the suite never got a fair look at it');
   } finally {
     delete process.env.FIXTURE_URL;
     await server?.close();

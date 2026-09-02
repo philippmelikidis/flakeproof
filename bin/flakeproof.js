@@ -22,9 +22,32 @@ const USAGE = `usage:
   flakeproof baseline <url> [--out <file.json>]
   flakeproof run [--cmd <command>] [--url <url>] [--results <file>] [--reader playwright|robot]
                  [--baseline <file.json>] [--out <file.md|file.html>]
-  flakeproof blindspots [--cmd <command>] [--results <file>] [--reader playwright|robot]
+  flakeproof blindspots [--cmd <command>] [--results <file>] [--reader playwright]
                         --selectors <sel1,sel2,...> [--mutations <id1,id2,...>]
+                        [--runs <n>] [--budget <n>]
                         [--json] [--out <file.md|file.html>]`;
+
+// `--selectors` uses a bare comma to separate distinct targets (documented
+// as "sel1,sel2,..."). A comma immediately followed by whitespace is the
+// classic hand-written style for a single COMPOUND css selector list, like
+// ".a, .b" meaning "whichever matches first" - flakeproof cannot tell that
+// intent apart from "two separate targets" from the string alone, and
+// silently guessing wrong would change what the user asked for without
+// telling them (Fix 8 in the review). Rejecting it outright, with a message
+// that says exactly why, beats silently picking one interpretation.
+function splitSelectors(raw) {
+  if (/,\s+/.test(raw)) {
+    throw new Error(
+      `--selectors "${raw}" has a comma followed by a space, which looks like a single compound css selector rather ` +
+        'than a list of separate targets - flakeproof cannot tell those apart. If you meant separate targets, remove ' +
+        'the space (e.g. "sel1,sel2"); a single selector that itself needs a literal comma is not supported yet.',
+    );
+  }
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
@@ -82,6 +105,7 @@ async function main() {
       options: {
         cmd: { type: 'string' }, results: { type: 'string' }, reader: { type: 'string' },
         selectors: { type: 'string' }, mutations: { type: 'string' },
+        runs: { type: 'string' }, budget: { type: 'string' },
         json: { type: 'boolean', default: false }, out: { type: 'string' },
       },
     });
@@ -90,19 +114,20 @@ async function main() {
     const cmd = values.cmd ?? cfg.cmd;
     const results = values.results ?? cfg.results ?? 'results.json';
     const reader = values.reader ?? cfg.reader ?? 'playwright';
-    const selectors = (values.selectors ?? (Array.isArray(bsCfg.selectors) ? bsCfg.selectors.join(',') : bsCfg.selectors))
-      ?.split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const selectorsRaw = values.selectors ?? (Array.isArray(bsCfg.selectors) ? bsCfg.selectors.join(',') : bsCfg.selectors);
+    const selectors = selectorsRaw ? splitSelectors(selectorsRaw) : undefined;
     const mutationsRaw = values.mutations ?? (Array.isArray(bsCfg.mutations) ? bsCfg.mutations.join(',') : bsCfg.mutations);
     const mutations = mutationsRaw ? mutationsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+    const runsPerRound = Number(values.runs ?? bsCfg.runs ?? 2);
+    const budgetRaw = values.budget ?? bsCfg.budget;
+    const budget = budgetRaw === undefined ? undefined : Number(budgetRaw);
     if (!cmd) throw new Error('blindspots needs a test command, from --cmd or flakeproof.config.json');
     if (!['playwright', 'robot'].includes(reader)) throw new Error(`unknown reader "${reader}", expected playwright or robot`);
     if (!selectors || selectors.length === 0) {
       throw new Error('blindspots needs at least one selector, from --selectors or flakeproof.config.json (blindspots.selectors)');
     }
 
-    const result = await measureBlindspots({ cmd, reader, resultsPath: resolve(results), selectors, mutations });
+    const result = await measureBlindspots({ cmd, reader, resultsPath: resolve(results), selectors, mutations, runsPerRound, budget });
     const wantsHtml = !!values.out && /\.html?$/i.test(values.out);
     const output = values.json
       ? JSON.stringify(result, null, 2)
