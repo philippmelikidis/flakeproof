@@ -1,0 +1,247 @@
+{
+  "stats": {
+    "suites": 1,
+    "tests": 3,
+    "passes": 0,
+    "pending": 0,
+    "failures": 3,
+    "start": "2026-09-03T19:06:54.203Z",
+    "end": "2026-09-03T19:06:58.951Z",
+    "duration": 4748
+  },
+  "tests": [
+    {
+      "title": "times out waiting for a missing element (get)",
+      "fullTitle": "anchor capture times out waiting for a missing element (get)",
+      "file": null,
+      "duration": 1577,
+      "currentRetry": 0,
+      "err": {
+        "message": "Timed out retrying after 1500ms: Expected to find element: `#does-not-exist`, but never found it.",
+        "type": "existence",
+        "name": "AssertionError",
+        "stack": "AssertionError: Timed out retrying after 1500ms: Expected to find element: `#does-not-exist`, but never found it.\n    at Context.eval (webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js:4:49)",
+        "parsedStack": [
+          {
+            "message": "AssertionError: Timed out retrying after 1500ms: Expected to find element: `#does-not-exist`, but never found it.",
+            "whitespace": ""
+          },
+          {
+            "function": "Context.eval",
+            "fileUrl": "http://127.0.0.1:8321/__cypress/tests?p=cypress/e2e/fail.cy.js",
+            "originalFile": "webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js",
+            "relativeFile": "cypress/e2e/fail.cy.js",
+            "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+            "line": 4,
+            "column": 49,
+            "whitespace": "    "
+          }
+        ],
+        "codeFrame": {
+          "line": 4,
+          "column": 50,
+          "originalFile": "cypress/e2e/fail.cy.js",
+          "relativeFile": "cypress/e2e/fail.cy.js",
+          "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+          "frame": "  2 |   it('times out waiting for a missing element (get)', () => {\n  3 |     cy.visit('/');\n> 4 |     cy.get('#does-not-exist', { timeout: 1500 }).should('be.visible');\n    |                                                  ^\n  5 |   });\n  6 |\n  7 |   it('times out waiting for a missing element (contains)', () => {",
+          "language": "js"
+        }
+      }
+    },
+    {
+      "title": "times out waiting for a missing element (contains)",
+      "fullTitle": "anchor capture times out waiting for a missing element (contains)",
+      "file": null,
+      "duration": 1535,
+      "currentRetry": 0,
+      "err": {
+        "message": "Timed out retrying after 1500ms: Expected to find content: 'nonexistent-copy-xyz' but never did.",
+        "type": "existence",
+        "name": "AssertionError",
+        "stack": "AssertionError: Timed out retrying after 1500ms: Expected to find content: 'nonexistent-copy-xyz' but never did.\n    at Context.eval (webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js:9:59)",
+        "parsedStack": [
+          {
+            "message": "AssertionError: Timed out retrying after 1500ms: Expected to find content: 'nonexistent-copy-xyz' but never did.",
+            "whitespace": ""
+          },
+          {
+            "function": "Context.eval",
+            "fileUrl": "http://127.0.0.1:8321/__cypress/tests?p=cypress/e2e/fail.cy.js",
+            "originalFile": "webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js",
+            "relativeFile": "cypress/e2e/fail.cy.js",
+            "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+            "line": 9,
+            "column": 59,
+            "whitespace": "    "
+          }
+        ],
+        "codeFrame": {
+          "line": 9,
+          "column": 60,
+          "originalFile": "cypress/e2e/fail.cy.js",
+          "relativeFile": "cypress/e2e/fail.cy.js",
+          "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+          "frame": "   7 |   it('times out waiting for a missing element (contains)', () => {\n   8 |     cy.visit('/');\n>  9 |     cy.contains('nonexistent-copy-xyz', { timeout: 1500 }).should('be.visible');\n     |                                                            ^\n  10 |   });\n  11 |\n  12 |   it('assertion failure on an existing element', () => {",
+          "language": "js"
+        }
+      }
+    },
+    {
+      "title": "assertion failure on an existing element",
+      "fullTitle": "anchor capture assertion failure on an existing element",
+      "file": null,
+      "duration": 1538,
+      "currentRetry": 0,
+      "err": {
+        "message": "Timed out retrying after 1500ms: expected '<a#cta.btn.btn-primary>' to have text 'Wrong Text', but the text was 'Contact us'",
+        "name": "AssertionError",
+        "stack": "AssertionError: Timed out retrying after 1500ms: expected '<a#cta.btn.btn-primary>' to have text 'Wrong Text', but the text was 'Contact us'\n    at Context.eval (webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js:14:19)",
+        "parsedStack": [
+          {
+            "message": "AssertionError: Timed out retrying after 1500ms: expected '<a#cta.btn.btn-primary>' to have text 'Wrong Text', but the text was 'Contact us'",
+            "whitespace": ""
+          },
+          {
+            "function": "Context.eval",
+            "fileUrl": "http://127.0.0.1:8321/__cypress/tests?p=cypress/e2e/fail.cy.js",
+            "originalFile": "webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js",
+            "relativeFile": "cypress/e2e/fail.cy.js",
+            "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+            "line": 14,
+            "column": 19,
+            "whitespace": "    "
+          }
+        ],
+        "actual": "'Contact us'",
+        "expected": "'Wrong Text'",
+        "showDiff": true,
+        "codeFrame": {
+          "line": 14,
+          "column": 20,
+          "originalFile": "cypress/e2e/fail.cy.js",
+          "relativeFile": "cypress/e2e/fail.cy.js",
+          "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+          "frame": "  12 |   it('assertion failure on an existing element', () => {\n  13 |     cy.visit('/');\n> 14 |     cy.get('#cta').should('have.text', 'Wrong Text');\n     |                    ^\n  15 |   });\n  16 | });\n  17 |",
+          "language": "js"
+        }
+      }
+    }
+  ],
+  "pending": [],
+  "failures": [
+    {
+      "title": "times out waiting for a missing element (get)",
+      "fullTitle": "anchor capture times out waiting for a missing element (get)",
+      "file": null,
+      "currentRetry": 0,
+      "err": {
+        "message": "Timed out retrying after 1500ms: Expected to find element: `#does-not-exist`, but never found it.",
+        "type": "existence",
+        "name": "AssertionError",
+        "stack": "AssertionError: Timed out retrying after 1500ms: Expected to find element: `#does-not-exist`, but never found it.\n    at Context.eval (webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js:4:49)",
+        "parsedStack": [
+          {
+            "message": "AssertionError: Timed out retrying after 1500ms: Expected to find element: `#does-not-exist`, but never found it.",
+            "whitespace": ""
+          },
+          {
+            "function": "Context.eval",
+            "fileUrl": "http://127.0.0.1:8321/__cypress/tests?p=cypress/e2e/fail.cy.js",
+            "originalFile": "webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js",
+            "relativeFile": "cypress/e2e/fail.cy.js",
+            "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+            "line": 4,
+            "column": 49,
+            "whitespace": "    "
+          }
+        ],
+        "codeFrame": {
+          "line": 4,
+          "column": 50,
+          "originalFile": "cypress/e2e/fail.cy.js",
+          "relativeFile": "cypress/e2e/fail.cy.js",
+          "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+          "frame": "  2 |   it('times out waiting for a missing element (get)', () => {\n  3 |     cy.visit('/');\n> 4 |     cy.get('#does-not-exist', { timeout: 1500 }).should('be.visible');\n    |                                                  ^\n  5 |   });\n  6 |\n  7 |   it('times out waiting for a missing element (contains)', () => {",
+          "language": "js"
+        }
+      }
+    },
+    {
+      "title": "times out waiting for a missing element (contains)",
+      "fullTitle": "anchor capture times out waiting for a missing element (contains)",
+      "file": null,
+      "currentRetry": 0,
+      "err": {
+        "message": "Timed out retrying after 1500ms: Expected to find content: 'nonexistent-copy-xyz' but never did.",
+        "type": "existence",
+        "name": "AssertionError",
+        "stack": "AssertionError: Timed out retrying after 1500ms: Expected to find content: 'nonexistent-copy-xyz' but never did.\n    at Context.eval (webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js:9:59)",
+        "parsedStack": [
+          {
+            "message": "AssertionError: Timed out retrying after 1500ms: Expected to find content: 'nonexistent-copy-xyz' but never did.",
+            "whitespace": ""
+          },
+          {
+            "function": "Context.eval",
+            "fileUrl": "http://127.0.0.1:8321/__cypress/tests?p=cypress/e2e/fail.cy.js",
+            "originalFile": "webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js",
+            "relativeFile": "cypress/e2e/fail.cy.js",
+            "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+            "line": 9,
+            "column": 59,
+            "whitespace": "    "
+          }
+        ],
+        "codeFrame": {
+          "line": 9,
+          "column": 60,
+          "originalFile": "cypress/e2e/fail.cy.js",
+          "relativeFile": "cypress/e2e/fail.cy.js",
+          "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+          "frame": "   7 |   it('times out waiting for a missing element (contains)', () => {\n   8 |     cy.visit('/');\n>  9 |     cy.contains('nonexistent-copy-xyz', { timeout: 1500 }).should('be.visible');\n     |                                                            ^\n  10 |   });\n  11 |\n  12 |   it('assertion failure on an existing element', () => {",
+          "language": "js"
+        }
+      }
+    },
+    {
+      "title": "assertion failure on an existing element",
+      "fullTitle": "anchor capture assertion failure on an existing element",
+      "file": null,
+      "currentRetry": 0,
+      "err": {
+        "message": "Timed out retrying after 1500ms: expected '<a#cta.btn.btn-primary>' to have text 'Wrong Text', but the text was 'Contact us'",
+        "name": "AssertionError",
+        "stack": "AssertionError: Timed out retrying after 1500ms: expected '<a#cta.btn.btn-primary>' to have text 'Wrong Text', but the text was 'Contact us'\n    at Context.eval (webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js:14:19)",
+        "parsedStack": [
+          {
+            "message": "AssertionError: Timed out retrying after 1500ms: expected '<a#cta.btn.btn-primary>' to have text 'Wrong Text', but the text was 'Contact us'",
+            "whitespace": ""
+          },
+          {
+            "function": "Context.eval",
+            "fileUrl": "http://127.0.0.1:8321/__cypress/tests?p=cypress/e2e/fail.cy.js",
+            "originalFile": "webpack://fp-cypress-capture/./cypress/e2e/fail.cy.js",
+            "relativeFile": "cypress/e2e/fail.cy.js",
+            "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+            "line": 14,
+            "column": 19,
+            "whitespace": "    "
+          }
+        ],
+        "actual": "'Contact us'",
+        "expected": "'Wrong Text'",
+        "showDiff": true,
+        "codeFrame": {
+          "line": 14,
+          "column": 20,
+          "originalFile": "cypress/e2e/fail.cy.js",
+          "relativeFile": "cypress/e2e/fail.cy.js",
+          "absoluteFile": "/private/tmp/fp-cypress-capture/cypress/e2e/fail.cy.js",
+          "frame": "  12 |   it('assertion failure on an existing element', () => {\n  13 |     cy.visit('/');\n> 14 |     cy.get('#cta').should('have.text', 'Wrong Text');\n     |                    ^\n  15 |   });\n  16 | });\n  17 |",
+          "language": "js"
+        }
+      }
+    }
+  ],
+  "passes": []
+}

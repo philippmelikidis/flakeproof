@@ -284,13 +284,18 @@ export async function measureBlindspots(opts) {
   const { cmd, cwd, reader, resultsPath, selectors, mutations } = opts;
   if (!cmd) throw new Error('measureBlindspots needs a test command');
   if (!reader || !READERS[reader]) throw new Error(`measureBlindspots needs a known reader, got "${reader}"`);
-  if (reader === 'robot') {
-    // Rejected upfront, before a single process spawns: there is no Robot
-    // Framework injection wrapper yet (see issue #11), so running the
-    // control pass at all would waste the user's time on a measurement that
-    // can never produce a real ack. Fix 6 in the review.
+  if (reader !== 'playwright') {
+    // Rejected upfront, before a single process spawns: only the Playwright
+    // wrapper (src/inject/playwright.js) understands FLAKEPROOF_MUTATION_*,
+    // so running the control pass at all would waste the user's time on a
+    // measurement that can never produce a real ack. Robot Framework has no
+    // injection wrapper at all (issue #11 covers its temporal lane only);
+    // Cypress, Selenium and Puppeteer got a temporal injection point (issue
+    // #13) but not a semantic-mutation one, so blindspots stays
+    // playwright-only for now. Fix 6 in the review.
+    const seeIssue = reader === 'robot' ? ' (see issue #11)' : '';
     throw new Error(
-      'blindspots does not support the robot reader yet: no Robot Framework injection wrapper exists (see issue #11); use --reader playwright',
+      `blindspots does not support the ${reader} reader yet: only the playwright reader has a mutation injection wrapper${seeIssue}; use --reader playwright`,
     );
   }
   if (!resultsPath) throw new Error('measureBlindspots needs a resultsPath');
