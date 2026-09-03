@@ -27,6 +27,7 @@
   "files": [
     "bin",
     "src",
+    "rf",
     "README.md",
     "LICENSE"
   ],
@@ -38,7 +39,11 @@
   "bin": { "flakeproof": "bin/flakeproof.js" },
   "exports": {
     ".": "./src/triage/engine.js",
-    "./inject": "./src/inject/playwright.js"
+    "./inject": "./src/inject/playwright.js",
+    "./inject-cypress": "./src/inject/cypress.js",
+    "./inject-cypress-node": "./src/inject/cypress-node.js",
+    "./inject-selenium": "./src/inject/selenium.js",
+    "./inject-puppeteer": "./src/inject/puppeteer.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
