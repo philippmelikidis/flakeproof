@@ -143,6 +143,7 @@ runs:
         INPUT_RESULTS_PATH: ${{ inputs.results-path }}
         INPUT_READER: ${{ inputs.reader }}
         INPUT_BASELINE_PATH: ${{ inputs.baseline-path }}
+        INPUT_BLOCKING: ${{ inputs.blocking }}
       run: |
         set +e
         node ${{ github.action_path }}/action/scripts/run-and-report.js
@@ -155,7 +156,9 @@ runs:
           echo "::error::flakeproof action: gate misconfigured, see the log above. This always fails the job, independent of the blocking input."
           exit $code
         fi
-        if [ "${{ inputs.blocking }}" = "true" ]; then
+        # Read through the environment rather than interpolating the input
+        # directly into the shell, matching every other input in this step.
+        if [ "$INPUT_BLOCKING" = "true" ]; then
           exit $code
         fi
         exit 0
