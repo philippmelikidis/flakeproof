@@ -28,16 +28,27 @@ einen belastbaren Gegenvorschlag liefert.
 
 ## Kernkonzept
 
-Eine Injektions-Engine, drei Mutationskataloge mit unterschiedlicher Erwartung:
+Eine Injektions-Engine, vier Mutationskataloge mit unterschiedlicher Erwartung:
 
 | Katalog | Beispiele | Erwartung | Misst |
 |---|---|---|---|
 | **Semantisch** | Text ändern, `href` verbiegen, Element entfernen, Reihenfolge tauschen | Test **muss** rot werden | Sensitivität |
 | **Kosmetisch** | Wrapper-`<div>`, Klasse ändern, Attributreihenfolge, Whitespace, generierte Hash-Klassen, Element im Baum verschieben | Test **muss** grün bleiben | DOM-Robustheit |
 | **Temporal** | Element erscheint 800 ms später, Request antwortet langsam, Animation dauert länger | Test **muss** grün bleiben | Warte-Strategie |
+| **Proving** | Alles aus dem kosmetischen Katalog, zusätzlich ein Copy-Tweak (Gross-/Kleinschreibung des ersten Buchstabens kippen) | Der vorgeschlagene Selektor **muss** weiter genau das ursprüngliche Element treffen | Selektor-Robustheit |
 
 Der temporale Katalog macht Flakiness deterministisch: Statt die Suite 500-mal laufen zu
 lassen und auf einen Zufallstreffer zu hoffen, wird die Bedingung gezielt provoziert.
+
+Der Proving-Katalog ist kein Katalog über die Suite, sondern über einen
+**Selektor-Kandidaten**: Schritt 5 des Triage-Algorithmus (unten) muss den
+Gegenvorschlag beweisen, nicht nur gegen den kosmetischen Katalog, der die
+Suite selbst prüft. Der Copy-Tweak deckt eine Schwäche ab, die der kosmetische
+Katalog gar nicht sieht - ein Textanker, der zufällig auf eine Umformulierung
+trifft, die nur die Gross-/Kleinschreibung ändert. Deshalb lebt dieser Katalog
+separat (`src/probe/catalogs/proving.js`) und wird ausschliesslich vom Prover
+(`src/triage/prove.js`) verwendet; die Klassifikation der Suite selbst und die
+Phase-0-Messung bleiben beim reinen kosmetischen Katalog.
 
 Die Mutation passiert **im Browser, nicht im Test-Runner**. Damit ist der Kern
 frameworkfrei.
@@ -100,7 +111,7 @@ an der Berührungskarte.
 
 ```
 core/
-  catalogs/      semantisch | kosmetisch | temporal, als reine DOM-Operationen
+  catalogs/      semantisch | kosmetisch | temporal | proving, als reine DOM-Operationen
   probe.js       vor Page-Load injiziert: mutiert, snapshottet, zeichnet auf
   orchestrator/  Auswahl unter Budget, Parallelisierung, Cache
   triage/        Anker-Extraktion, DOM-Diff, Klassifikation, Selektor-Empfehlung

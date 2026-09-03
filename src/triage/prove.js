@@ -34,13 +34,19 @@ async function candidateHits(page, selector) {
   }
 }
 
-export async function proveCandidates(url, anchorPath, candidates, { mutations = provingMutations } = {}) {
-  const browser = await chromium.launch();
+// `browser` lets a caller that already holds a launched Chromium instance
+// (see src/triage/engine.js#triage, which shares one instance across an
+// entire triage run instead of launching one per step) reuse it here. When
+// omitted, a browser is launched and closed just for this call, exactly as
+// before - every existing caller (the CLI, tests) keeps working unchanged.
+export async function proveCandidates(url, anchorPath, candidates, { mutations = provingMutations, browser = null } = {}) {
+  const ownBrowser = !browser;
+  const activeBrowser = browser ?? (await chromium.launch());
   try {
     const results = candidates.map((c) => ({ ...c, uniqueInCurrent: false, survived: 0, applied: 0, outcomes: [] }));
 
     const withPage = async (fn) => {
-      const page = await browser.newPage();
+      const page = await activeBrowser.newPage();
       try {
         await page.goto(url, { waitUntil: 'domcontentloaded' });
         const marked = await page.evaluate(markTarget, anchorPath);
@@ -75,6 +81,6 @@ export async function proveCandidates(url, anchorPath, candidates, { mutations =
       (x, y) => Number(y.uniqueInCurrent) - Number(x.uniqueInCurrent) || y.survived - x.survived,
     );
   } finally {
-    await browser.close();
+    if (ownBrowser) await activeBrowser.close();
   }
 }

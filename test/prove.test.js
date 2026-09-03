@@ -17,22 +17,6 @@ async function anchorPathFor(url, selector) {
   }
 }
 
-test('id candidate survives every applicable cosmetic mutation', async () => {
-  const server = await startFixtureServer();
-  try {
-    const snap = await anchorPathFor(server.url, '#cta');
-    const candidates = candidatesFor(snap, snap.anchorPath);
-    const proven = await proveCandidates(server.url, snap.anchorPath, candidates);
-    const top = proven[0];
-    assert.equal(top.selector, '#cta');
-    assert.equal(top.uniqueInCurrent, true);
-    assert.ok(top.applied >= 3, `expected at least 3 applicable mutations, got ${top.applied}`);
-    assert.equal(top.survived, top.applied);
-  } finally {
-    await server.close();
-  }
-});
-
 test('positional candidate survives renames but not reordering', async () => {
   const server = await startFixtureServer();
   try {
@@ -68,17 +52,29 @@ test('text candidate survives cosmetic mutations but not the copy tweak', async 
   }
 });
 
-test('id candidate outranks text after the copy tweak', async () => {
+// Merges what used to be two nearly identical #cta tests (one only checking
+// the id candidate's own survival, the other only checking it still ranks
+// above text): proveCandidates defaults to the full PROVING catalog
+// (cosmetic mutations plus the copy tweak, see src/probe/catalogs/proving.js)
+// - not the plain cosmetic catalog, despite what an earlier version of this
+// test's name implied - so one test asserting everything that catalog
+// actually proves about #cta is both more complete and less redundant than
+// two overlapping ones.
+test('id candidate for #cta survives every proving-catalog mutation and outranks the weaker text candidate', async () => {
   const server = await startFixtureServer();
   try {
     const snap = await anchorPathFor(server.url, '#cta');
     const candidates = candidatesFor(snap, snap.anchorPath);
     const proven = await proveCandidates(server.url, snap.anchorPath, candidates);
-    assert.equal(proven[0].selector, '#cta');
-    assert.equal(proven[0].survived, proven[0].applied, 'the id must survive the copy tweak');
+    const top = proven[0];
+    assert.equal(top.selector, '#cta');
+    assert.equal(top.uniqueInCurrent, true);
+    assert.ok(top.applied >= 3, `expected at least 3 applicable mutations, got ${top.applied}`);
+    assert.equal(top.survived, top.applied, 'the id must survive every mutation, including the copy tweak');
+
     const text = proven.find((c) => c.kind === 'text');
     assert.ok(text, 'cta must still get a text candidate');
-    assert.equal(text.survived, text.applied - 1);
+    assert.equal(text.survived, text.applied - 1, 'the copy tweak must defeat the text candidate; that is its honest weakness');
   } finally {
     await server.close();
   }

@@ -13,16 +13,19 @@ export const copyTweak = {
   apply: (selector) => {
     const el = document.querySelector(selector);
     if (!el) return false;
+    // A leading digit or punctuation in the FIRST non-empty text node (e.g.
+    // "42 Products") used to make this bail out with `false` even though a
+    // later text node had a flippable letter. Keep scanning every non-empty
+    // text node in order and only give up once none of them has one.
     for (const node of el.childNodes) {
-      if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
-        const text = node.textContent;
-        const i = text.search(/[a-zA-Z]/);
-        if (i === -1) return false;
-        const ch = text[i];
-        const flipped = ch === ch.toLowerCase() ? ch.toUpperCase() : ch.toLowerCase();
-        node.textContent = text.slice(0, i) + flipped + text.slice(i + 1);
-        return true;
-      }
+      if (node.nodeType !== Node.TEXT_NODE || !node.textContent.trim()) continue;
+      const text = node.textContent;
+      const i = text.search(/[a-zA-Z]/);
+      if (i === -1) continue;
+      const ch = text[i];
+      const flipped = ch === ch.toLowerCase() ? ch.toUpperCase() : ch.toLowerCase();
+      node.textContent = text.slice(0, i) + flipped + text.slice(i + 1);
+      return true;
     }
     return false;
   },

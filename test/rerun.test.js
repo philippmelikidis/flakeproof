@@ -75,3 +75,16 @@ test('a genuinely failing test is not flagged as broken', async () => {
   const stats = await rerunStats('node -e "process.exit(1)"', 2);
   assert.equal(stats.commandBroken, false);
 });
+
+// Exit code 127 is the shell's OWN convention for "command not found", but
+// nothing stops a real, legitimately-run suite from exiting 127 on its own
+// (e.g. a runner that maps "no tests matched" to that code). Before this
+// fix, commandBroken read 127 alone as proof the command was broken - this
+// suite genuinely ran (node did start and execute the -e script) and simply
+// chose to exit 127, so it must not be mislabeled the same as a shell that
+// never found the program at all.
+test('a suite that legitimately exits 127 on its own is not flagged as broken', async () => {
+  const stats = await rerunStats('node -e "process.exit(127)"', 2);
+  assert.deepEqual(stats.exitCodes, [127, 127]);
+  assert.equal(stats.commandBroken, false);
+});
