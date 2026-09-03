@@ -343,11 +343,21 @@ export async function triage(opts) {
       }
       if (rerun.commandBroken) {
         notes.push('every rerun exited with a spawn error or command-not-found; the rerun command itself looks broken and the rerun statistics are not meaningful');
+        // A broken command failing on every "rerun" is not the same claim as
+        // a test deterministically failing on every rerun - the command
+        // never actually ran the suite, so there is no failure data to read
+        // intermittency (or its absence) from either way. Saying "no
+        // intermittency" here would contradict the note above in the same
+        // breath: it cannot both be true that the stats are meaningless AND
+        // that they support a confident "no intermittency" conclusion.
+        if (opts.temporal) {
+          notes.push('temporal probe skipped: the rerun command looks broken, so there is no real failure data to attribute to timing');
+        }
       } else {
         notes.push('test failed on every rerun; deterministic failure');
-      }
-      if (opts.temporal) {
-        notes.push('temporal probe skipped: the test fails on every rerun, so there is no intermittency for a delay to explain');
+        if (opts.temporal) {
+          notes.push('temporal probe skipped: the test fails on every rerun, so there is no intermittency for a delay to explain');
+        }
       }
     }
 
