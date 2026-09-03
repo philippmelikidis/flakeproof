@@ -1,11 +1,36 @@
 {
   "name": "flakeproof",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
+  "description": "When CI goes red, flakeproof tells you whether it is a real bug or a fragile test, and proves a better selector instead of guessing one.",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/philippmelikidis/flakeproof.git"
+  },
+  "bugs": {
+    "url": "https://github.com/philippmelikidis/flakeproof/issues"
+  },
+  "homepage": "https://github.com/philippmelikidis/flakeproof#readme",
+  "keywords": [
+    "testing",
+    "e2e",
+    "flaky-tests",
+    "playwright",
+    "robot-framework",
+    "ci"
+  ],
+  "files": [
+    "bin",
+    "src",
+    "rf",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test test/*.test.js",
     "spike": "node spikes/run-phase0.js",
@@ -14,7 +39,11 @@
   "bin": { "flakeproof": "bin/flakeproof.js" },
   "exports": {
     ".": "./src/triage/engine.js",
-    "./inject": "./src/inject/playwright.js"
+    "./inject": "./src/inject/playwright.js",
+    "./inject-cypress": "./src/inject/cypress.js",
+    "./inject-cypress-node": "./src/inject/cypress-node.js",
+    "./inject-selenium": "./src/inject/selenium.js",
+    "./inject-puppeteer": "./src/inject/puppeteer.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

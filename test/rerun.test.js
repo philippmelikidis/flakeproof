@@ -45,6 +45,26 @@ test('stale FLAKEPROOF_TEMPORAL_MS from the parent environment is not inherited'
   }
 });
 
+test('stale FLAKEPROOF_MUTATION_ID from the parent environment (the other probe lane) is not inherited either', async () => {
+  // Fix 5 in the review: rerunStats previously stripped only its own
+  // FLAKEPROOF_TEMPORAL_* family, so a blindspots mutation left exported in
+  // the same shell would leak into a temporal control round and turn its
+  // baseline red for a reason that has nothing to do with timing, silently
+  // losing the temporal finding.
+  let dir = null;
+  process.env.FLAKEPROOF_MUTATION_ID = 'change-text';
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-rerun-'));
+    const script = join(dir, 'sensitive.cjs');
+    await writeFile(script, 'process.exit(process.env.FLAKEPROOF_MUTATION_ID ? 1 : 0);');
+    const stats = await rerunStats(`node ${script}`, 1);
+    assert.equal(stats.failures, 0);
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('a command that cannot run at all is flagged as broken', async () => {
   const stats = await rerunStats('definitely-not-a-command-fp-2b', 2);
   assert.equal(stats.failures, 2);
@@ -53,5 +73,18 @@ test('a command that cannot run at all is flagged as broken', async () => {
 
 test('a genuinely failing test is not flagged as broken', async () => {
   const stats = await rerunStats('node -e "process.exit(1)"', 2);
+  assert.equal(stats.commandBroken, false);
+});
+
+// Exit code 127 is the shell's OWN convention for "command not found", but
+// nothing stops a real, legitimately-run suite from exiting 127 on its own
+// (e.g. a runner that maps "no tests matched" to that code). Before this
+// fix, commandBroken read 127 alone as proof the command was broken - this
+// suite genuinely ran (node did start and execute the -e script) and simply
+// chose to exit 127, so it must not be mislabeled the same as a shell that
+// never found the program at all.
+test('a suite that legitimately exits 127 on its own is not flagged as broken', async () => {
+  const stats = await rerunStats('node -e "process.exit(127)"', 2);
+  assert.deepEqual(stats.exitCodes, [127, 127]);
   assert.equal(stats.commandBroken, false);
 });

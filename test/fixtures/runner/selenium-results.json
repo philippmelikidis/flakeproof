@@ -1,0 +1,89 @@
+{
+  "stats": {
+    "suites": 1,
+    "tests": 3,
+    "passes": 1,
+    "pending": 0,
+    "failures": 2,
+    "start": "2026-09-03T19:08:59.654Z",
+    "end": "2026-09-03T19:09:02.272Z",
+    "duration": 2618
+  },
+  "tests": [
+    {
+      "title": "passes on an existing element",
+      "fullTitle": "selenium anchor capture passes on an existing element",
+      "file": "/private/tmp/fp-selenium-capture/test.spec.js",
+      "duration": 12,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    },
+    {
+      "title": "times out waiting for a missing element by css",
+      "fullTitle": "selenium anchor capture times out waiting for a missing element by css",
+      "file": "/private/tmp/fp-selenium-capture/test.spec.js",
+      "duration": 1679,
+      "currentRetry": 0,
+      "err": {
+        "stack": "TimeoutError: Waiting for element to be located By(css selector, #does-not-exist)\nWait timed out after 1678ms\n    at /private/tmp/fp-selenium-capture/node_modules/selenium-webdriver/lib/webdriver.js:938:22\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)",
+        "message": "Waiting for element to be located By(css selector, #does-not-exist)\nWait timed out after 1678ms",
+        "name": "TimeoutError",
+        "remoteStacktrace": ""
+      }
+    },
+    {
+      "title": "throws NoSuchElementError for an immediate css lookup",
+      "fullTitle": "selenium anchor capture throws NoSuchElementError for an immediate css lookup",
+      "file": "/private/tmp/fp-selenium-capture/test.spec.js",
+      "duration": 8,
+      "currentRetry": 0,
+      "err": {
+        "stack": "NoSuchElementError: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"#also-missing\"}\n  (Session info: chrome=152.0.7977.66)\n    at Object.throwDecodedError (node_modules/selenium-webdriver/lib/error.js:523:15)\n    at parseHttpResponse (node_modules/selenium-webdriver/lib/http.js:527:13)\n    at Executor.execute (node_modules/selenium-webdriver/lib/http.js:459:28)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async Driver.execute (node_modules/selenium-webdriver/lib/webdriver.js:755:17)\n    at async Context.<anonymous> (test.spec.js:31:5)",
+        "message": "no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"#also-missing\"}\n  (Session info: chrome=152.0.7977.66)",
+        "name": "NoSuchElementError",
+        "remoteStacktrace": "0   chromedriver                        0x0000000100cb5044 chromedriver + 3444804\n1   chromedriver                        0x00000001009b157c chromedriver + 284028\n2   chromedriver                        0x00000001009f9fd4 chromedriver + 581588\n3   chromedriver                        0x0000000100a39170 chromedriver + 840048\n4   chromedriver                        0x00000001009ef97c chromedriver + 539004\n5   chromedriver                        0x0000000100c8530c chromedriver + 3248908\n6   chromedriver                        0x0000000100c88344 chromedriver + 3261252\n7   chromedriver                        0x0000000100c6eec8 chromedriver + 3157704\n8   chromedriver                        0x0000000100c88c14 chromedriver + 3263508\n9   chromedriver                        0x0000000100c62d38 chromedriver + 3108152\n10  chromedriver                        0x0000000100ca4768 chromedriver + 3377000\n11  chromedriver                        0x0000000100ca48c8 chromedriver + 3377352\n12  chromedriver                        0x0000000100cb4ce0 chromedriver + 3443936\n13  libsystem_pthread.dylib             0x0000000189b9fbc4 _pthread_start + 132\n14  libsystem_pthread.dylib             0x0000000189b9ab7c thread_start + 4\n"
+      }
+    }
+  ],
+  "pending": [],
+  "failures": [
+    {
+      "title": "times out waiting for a missing element by css",
+      "fullTitle": "selenium anchor capture times out waiting for a missing element by css",
+      "file": "/private/tmp/fp-selenium-capture/test.spec.js",
+      "duration": 1679,
+      "currentRetry": 0,
+      "err": {
+        "stack": "TimeoutError: Waiting for element to be located By(css selector, #does-not-exist)\nWait timed out after 1678ms\n    at /private/tmp/fp-selenium-capture/node_modules/selenium-webdriver/lib/webdriver.js:938:22\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)",
+        "message": "Waiting for element to be located By(css selector, #does-not-exist)\nWait timed out after 1678ms",
+        "name": "TimeoutError",
+        "remoteStacktrace": ""
+      }
+    },
+    {
+      "title": "throws NoSuchElementError for an immediate css lookup",
+      "fullTitle": "selenium anchor capture throws NoSuchElementError for an immediate css lookup",
+      "file": "/private/tmp/fp-selenium-capture/test.spec.js",
+      "duration": 8,
+      "currentRetry": 0,
+      "err": {
+        "stack": "NoSuchElementError: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"#also-missing\"}\n  (Session info: chrome=152.0.7977.66)\n    at Object.throwDecodedError (node_modules/selenium-webdriver/lib/error.js:523:15)\n    at parseHttpResponse (node_modules/selenium-webdriver/lib/http.js:527:13)\n    at Executor.execute (node_modules/selenium-webdriver/lib/http.js:459:28)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async Driver.execute (node_modules/selenium-webdriver/lib/webdriver.js:755:17)\n    at async Context.<anonymous> (test.spec.js:31:5)",
+        "message": "no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"#also-missing\"}\n  (Session info: chrome=152.0.7977.66)",
+        "name": "NoSuchElementError",
+        "remoteStacktrace": "0   chromedriver                        0x0000000100cb5044 chromedriver + 3444804\n1   chromedriver                        0x00000001009b157c chromedriver + 284028\n2   chromedriver                        0x00000001009f9fd4 chromedriver + 581588\n3   chromedriver                        0x0000000100a39170 chromedriver + 840048\n4   chromedriver                        0x00000001009ef97c chromedriver + 539004\n5   chromedriver                        0x0000000100c8530c chromedriver + 3248908\n6   chromedriver                        0x0000000100c88344 chromedriver + 3261252\n7   chromedriver                        0x0000000100c6eec8 chromedriver + 3157704\n8   chromedriver                        0x0000000100c88c14 chromedriver + 3263508\n9   chromedriver                        0x0000000100c62d38 chromedriver + 3108152\n10  chromedriver                        0x0000000100ca4768 chromedriver + 3377000\n11  chromedriver                        0x0000000100ca48c8 chromedriver + 3377352\n12  chromedriver                        0x0000000100cb4ce0 chromedriver + 3443936\n13  libsystem_pthread.dylib             0x0000000189b9fbc4 _pthread_start + 132\n14  libsystem_pthread.dylib             0x0000000189b9ab7c thread_start + 4\n"
+      }
+    }
+  ],
+  "passes": [
+    {
+      "title": "passes on an existing element",
+      "fullTitle": "selenium anchor capture passes on an existing element",
+      "file": "/private/tmp/fp-selenium-capture/test.spec.js",
+      "duration": 12,
+      "currentRetry": 0,
+      "speed": "fast",
+      "err": {}
+    }
+  ]
+}
