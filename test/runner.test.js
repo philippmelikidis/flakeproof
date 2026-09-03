@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm, copyFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -151,6 +152,29 @@ test('a stale results file is flagged when the command succeeded but failures ar
     );
   } finally {
     if (server) await server.close();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('an unknown reader name fails upfront, listing the valid ones, before the test command spawns', async () => {
+  // If this ever spawned the command first, this "command" would leave
+  // proof (a file) that the assertion below can catch.
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-run-'));
+    const marker = join(dir, 'spawned');
+    await assert.rejects(
+      () =>
+        runSuite({
+          cmd: `node -e "require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x')"`,
+          resultsPath: join(dir, 'results.json'),
+          reader: 'nonexistent-framework',
+          cwd: dir,
+        }),
+      /unknown result reader "nonexistent-framework".*playwright.*robot.*cypress.*selenium.*puppeteer/s,
+    );
+    assert.equal(existsSync(marker), false, 'the test command must never spawn for an unknown reader');
+  } finally {
     if (dir) await rm(dir, { recursive: true, force: true });
   }
 });

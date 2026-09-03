@@ -9,7 +9,7 @@ import { triage } from '../src/triage/engine.js';
 import { renderReport } from '../src/report.js';
 import { renderHtmlReport } from '../src/report-html.js';
 import { loadConfig, DEFAULT_BASELINE } from '../src/config.js';
-import { runSuite } from '../src/runner/index.js';
+import { runSuite, READERS } from '../src/runner/index.js';
 import { renderSummaryMarkdown, renderSummaryHtml } from '../src/report-summary.js';
 import { measureBlindspots } from '../src/blindspots/measure.js';
 import { renderBlindspotsMarkdown, renderBlindspotsHtml } from '../src/blindspots/report.js';
@@ -20,7 +20,8 @@ const USAGE = `usage:
                     (--current-url <url> | --current <file.json>)
                     [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md|file.html>] [--open]
   flakeproof baseline <url> [--out <file.json>]
-  flakeproof run [--cmd <command>] [--url <url>] [--results <file>] [--reader playwright|robot]
+  flakeproof run [--cmd <command>] [--url <url>] [--results <file>]
+                 [--reader playwright|robot|cypress|selenium|puppeteer]
                  [--baseline <file.json>] [--out <file.md|file.html>]
   flakeproof blindspots [--cmd <command>] [--results <file>] [--reader playwright]
                         --selectors <sel1,sel2,...> [--mutations <id1,id2,...>]
@@ -80,7 +81,7 @@ async function main() {
     const baselinePath = resolve(values.baseline ?? cfg.baseline ?? DEFAULT_BASELINE);
     if (!cmd) throw new Error('run needs a test command, from --cmd or flakeproof.config.json');
     if (!url) throw new Error('run needs a url, from --url or flakeproof.config.json');
-    if (!['playwright', 'robot'].includes(reader)) throw new Error(`unknown reader "${reader}", expected playwright or robot`);
+    if (!READERS[reader]) throw new Error(`unknown reader "${reader}", expected one of: ${Object.keys(READERS).join(', ')}`);
     if (!existsSync(baselinePath)) {
       throw new Error(`no baseline at ${baselinePath}. Record one first while the build is green: flakeproof baseline <url>`);
     }
@@ -122,7 +123,7 @@ async function main() {
     const budgetRaw = values.budget ?? bsCfg.budget;
     const budget = budgetRaw === undefined ? undefined : Number(budgetRaw);
     if (!cmd) throw new Error('blindspots needs a test command, from --cmd or flakeproof.config.json');
-    if (!['playwright', 'robot'].includes(reader)) throw new Error(`unknown reader "${reader}", expected playwright or robot`);
+    if (!READERS[reader]) throw new Error(`unknown reader "${reader}", expected one of: ${Object.keys(READERS).join(', ')}`);
     if (!selectors || selectors.length === 0) {
       throw new Error('blindspots needs at least one selector, from --selectors or flakeproof.config.json (blindspots.selectors)');
     }

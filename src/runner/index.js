@@ -4,21 +4,30 @@
 import { runTests } from './run-tests.js';
 import { failedTestsFromPlaywrightJson } from './read-playwright.js';
 import { failedTestsFromOutputXml } from '../adapters/robot.js';
+import { failedTestsFromCypressJson } from '../adapters/cypress.js';
+import { failedTestsFromSeleniumJson } from '../adapters/selenium.js';
+import { failedTestsFromPuppeteerJson } from '../adapters/puppeteer.js';
 import { triage } from '../triage/engine.js';
 
 export const READERS = {
   playwright: failedTestsFromPlaywrightJson,
   robot: failedTestsFromOutputXml,
+  cypress: failedTestsFromCypressJson,
+  selenium: failedTestsFromSeleniumJson,
+  puppeteer: failedTestsFromPuppeteerJson,
 };
 
 export async function runSuite(opts) {
-  const notes = [];
-  const run = await runTests(opts.cmd, { cwd: opts.cwd });
-
+  // Checked before the (possibly slow) test command ever spawns: a typo'd
+  // reader name should fail fast with the list of valid ones, not silently
+  // degrade into a "blind" run after wasting a full suite invocation.
   const read = READERS[opts.reader];
   if (!read) {
-    return { ran: true, exitCode: run.exitCode, failures: 0, results: [], blind: true, notes: [`unknown result reader: ${opts.reader}`] };
+    throw new Error(`unknown result reader "${opts.reader}"; expected one of: ${Object.keys(READERS).join(', ')}`);
   }
+
+  const notes = [];
+  const run = await runTests(opts.cmd, { cwd: opts.cwd });
 
   let failures;
   try {
