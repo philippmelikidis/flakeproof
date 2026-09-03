@@ -23,7 +23,7 @@ flakeproof mutates the page under test on purpose, in controlled ways, and watch
 
 Green under semantic changes means blind. Red under cosmetic or timing changes means fragile. Think of a smoke detector tester that produces both smoke and toast: a good detector beeps at one and ignores the other.
 
-The mutations run inside the browser, not inside the test runner, so the core is framework agnostic. Playwright and Robot Framework are supported today; Cypress, Selenium and Puppeteer only need the same two small adapter hooks.
+The mutations run inside the browser, not inside the test runner, so the core is framework agnostic. Playwright, Robot Framework, Cypress, Selenium and Puppeteer all have an anchor-extraction reader today; the temporal injection point (the piece that lets flakeproof provoke a delay inside your own suite) ships for Playwright, Robot Framework, Cypress, Selenium and Puppeteer as well - see "Catching missing waits" below for each framework's setup and its honest limits.
 
 ## Installation
 
@@ -92,7 +92,7 @@ It runs your command, reads which tests failed straight from the reporter output
 
     { "cmd": "npx playwright test", "url": "https://your-app.example", "results": "results.json" }
 
-Robot Framework works the same way with `--reader robot --results output.xml`.
+Robot Framework works the same way with `--reader robot --results output.xml`. Cypress, Selenium and Puppeteer suites work the same way too, with `--reader cypress|selenium|puppeteer` (see "Framework adapters" below for what result file each one expects and their honesty limits on anchor extraction). An unrecognized `--reader` name fails immediately with the list of valid ones, before your test command ever runs.
 
 ### A report you can actually read
 
@@ -127,16 +127,52 @@ Exit code 0 whenever a verdict was produced (including `unclear`), 1 on usage or
 
 Flaky tests usually mean a missing wait, but nobody can point at it. With the temporal lane flakeproof finds it: pass `--temporal` together with `--rerun-cmd`, and when reruns disagree, flakeproof reruns the test with the anchor element deliberately delayed by increasing amounts until the failure reproduces on every run. The report then says: `fails on every run when "#submit" appears 500 ms late; likely a missing wait`.
 
-Two guards keep that claim honest: a control run without any delay must pass first (a baseline that already fails on its own aborts the probe instead of blaming timing), and the inject wrapper acknowledges every injection, so a missing setup is reported as exactly that rather than being mistaken for proof that timing is fine.
+Two guards keep that claim honest: a control run without any delay must pass first (a baseline that already fails on its own aborts the probe instead of blaming timing), and the inject wrapper acknowledges every injection, so a missing setup is reported as exactly that rather than being mistaken for proof that timing is fine. `--rerun-cmd` is just a shell command, so this works the same way regardless of which framework's reader you use - the setup below is what makes that command's own run honor the delay.
 
-This needs a one-time, permanently inert setup in your Playwright suite:
+This needs a one-time, permanently inert setup, different per framework:
+
+**Playwright** - wrap your base test once:
 
     // fixtures.js
     import { test as base } from '@playwright/test';
     import { withTemporal } from 'flakeproof/inject';
     export const test = withTemporal(base);
 
-Robot Framework suites cannot be injected this way yet; the rerun statistics still work there, only the provocation step is Playwright-only for now.
+**Robot Framework** - attach the listener on the command line, no `.robot` file changes:
+
+    robot --listener /path/to/node_modules/flakeproof/rf/FlakeproofTemporalListener.py suite.robot
+
+The listener reacts right after `New Page`/`Go To` (Browser library) finishes, installing the same hiding rule and writing the same ack receipts `temporalProbe` already reads - no changes needed on the reading side. It cannot delay a page's very first paint the way a true init script would (Browser library has no such hook to begin with - see the listener's own docstring, `rf/FlakeproofTemporalListener.py`, for exactly what was checked and ruled out), only what the very next keyword goes on to observe, and it only covers the page open at injection time, not iframes. Requires Robot Framework >= 7.0 (the listener v3 API used here is new in that release).
+
+**Cypress** - two small additions, because a support-file hook runs inside the browser and has no direct way to write a file; see `src/inject/cypress.js`'s header comment for the full two-file example (`cypress.config.js` registers the `cy.task` that does the writing, the support file calls `installTemporal()`).
+
+**Selenium 4** - one call before your first navigation, using the CDP escape hatch (Chromium only):
+
+    import { installTemporal } from 'flakeproof/inject-selenium';
+    const driver = await new Builder().forBrowser('chrome').build();
+    await installTemporal(driver);
+    await driver.get(url);
+
+**Puppeteer** - one call per page, before its first navigation:
+
+    import { installTemporal } from 'flakeproof/inject-puppeteer';
+    const page = await browser.newPage();
+    await installTemporal(page);
+    await page.goto(url);
+
+All four non-Playwright hooks were verified against this repo's own fixture page with a real browser session each (a real element's visibility measurably delayed by the requested amount, with matching ack receipts) - see this project's cycle reports under `.superpowers/sdd/` for the exact captures.
+
+### Framework adapters
+
+Every reader turns a framework's own result file into the same `{ testId, message, anchor }` shape, and every anchor extractor is built from real captured failures (`test/fixtures/errors/`), not invented ones - see the adapter source files for exactly what was captured and how. Locator syntaxes differ across frameworks, and not every one can be expressed as a css selector flakeproof's DOM matcher can resolve; when it can't, the adapter abstains (`selector: null`) instead of guessing:
+
+| Reader | Result file | Cannot resolve (abstains) |
+|---|---|---|
+| `playwright` | `@playwright/test`'s json reporter | - |
+| `robot` | Robot Framework's `output.xml` | - |
+| `cypress` | Mocha JSON reporter (`cypress run --reporter json > file.json`) | `cy.contains(...)` - text content, not a selector |
+| `selenium` | Mocha JSON reporter (`mocha --reporter json <spec> > file.json`) | `By.xpath`, `By.linkText`, `By.partialLinkText` |
+| `puppeteer` | Jest JSON reporter (`jest --json --outputFile=file.json`) | `::-p-xpath`/`::-p-text` compiled selectors, the Locator API's timeout (names no selector at all) |
 
 ## Blindspots: does the suite notice anything at all?
 
@@ -163,7 +199,7 @@ or config-backed, in `flakeproof.config.json`:
 
 Selectors are supplied by you, not guessed from a baseline or inferred as "interesting" - predictable input, and a report that can always name the exact element (in your own words) each mutation targeted, beats a heuristic that might silently target the wrong thing. Every `(selector, mutation)` pair from the catalog is one experiment. A compound css selector list like `".a, .b"` is not supported as a single target yet: a comma followed by a space is rejected outright rather than silently guessed as two separate targets, since flakeproof cannot tell the two intents apart from the string alone. Write `--selectors ".a,.b"` (no space) if you meant two targets.
 
-The same `withTemporal` wrapper used for the temporal lane is the injection point here too (it now reacts to a second, independent set of `FLAKEPROOF_MUTATION_*` env vars); nothing new to wire up if you already use it. Robot Framework suites are not supported yet: there is no injection wrapper for Robot (see issue #11), so `--reader robot` is rejected upfront rather than running a control pass that could never produce a real acknowledgment.
+The same `withTemporal` wrapper used for the Playwright temporal lane is the injection point here too (it now reacts to a second, independent set of `FLAKEPROOF_MUTATION_*` env vars); nothing new to wire up if you already use it. Blindspots is playwright-only for now: Robot Framework has no injection wrapper at all for the semantic-mutation catalog (its temporal lane is covered separately, see "Catching missing waits"), and Cypress, Selenium and Puppeteer only got a temporal injection point in this cycle, not a mutation one - `--reader` anything other than `playwright` is rejected upfront rather than running a control pass that could never produce a real acknowledgment.
 
 By default every control run and every mutation round runs twice (`--runs`, default 2) and a round only counts as noticed when the suite is red on **every** run - a suite that is merely flaky for unrelated reasons cannot fabricate a perfect score just because one unlucky run happened to fail. A round whose runs disagree is reported as inconclusive, not unnoticed. `--budget <n>` caps the total number of suite invocations across the whole measurement; when the budget cuts the mutation list short, the report says exactly which experiments were skipped rather than looking like full coverage.
 
@@ -235,7 +271,9 @@ Not verified: the actual GitHub Actions runtime behaviour (composite `if:` condi
 
 Phase 1 (red triage MVP) and phase 2 (temporal lane, blindspots sensitivity scoring) are complete. Phase 0 established the measurement foundation: across 37 mutated fixture and live-site cases the classifier produced 0 misclassifications, with every abstention documented. Full numbers in `spikes/phase0-report.md`, reproducible via `npm run spike`.
 
-On the roadmap: temporal and blindspots injection for Robot Framework suites, proving candidates inside the user's own test run, and grading new tests before they enter the suite.
+Anchor extraction and a temporal injection point now exist for Cypress, Selenium and Puppeteer alongside Playwright and Robot Framework - five frameworks share the same triage core. Robot Framework's temporal lane (issue #11) is also done: a listener gives an RF Browser Library suite the same provoked-delay reproduction Playwright users get, without touching the suite's own `.robot` files.
+
+On the roadmap: blindspots' semantic-mutation injection for Robot Framework, Cypress, Selenium and Puppeteer (today it is playwright-only), proving candidates inside the user's own test run, and grading new tests before they enter the suite.
 
 ## Development
 
@@ -248,15 +286,18 @@ npm run lint
 
 Tests run against a local fixture page, no network needed. The suite includes end-to-end triage runs against deliberately built cosmetic and semantic variants of that page. The `examples/robotframework-testgilde/` folder contains a Robot Framework suite against a real website that served as the phase 0 validation target (see its own README).
 
+`test/rf-temporal-e2e.test.js` runs a real Robot Framework suite through `rf/FlakeproofTemporalListener.py` and needs a Python virtualenv with Robot Framework and the Browser library (`pip install robotframework robotframework-browser && rfbrowser init`) at `.venv/` in the repository root; it skips itself with a clear message when that virtualenv is not present, so `npm test` stays green on a checkout that only set up the Node side.
+
 ## Repository layout
 
 ```
 bin/flakeproof.js     CLI entry point (snapshot, triage, run, blindspots)
 src/probe/            code injected into the page: DOM serializer, mutation catalogs, temporal delay, mutation script
 src/triage/           anchor extraction, element matching, classification, candidates, proving, engine
-src/adapters/         one small adapter per test framework (Robot Framework today)
-src/inject/           opt-in helpers for user test suites (Playwright temporal + mutation injection)
-src/runner/           runs the user's suite and reads its result file (Playwright json, Robot output.xml)
+src/adapters/         one small adapter per test framework (Robot Framework, Cypress, Selenium, Puppeteer)
+src/inject/           opt-in helpers for user test suites (Playwright temporal + mutation injection, plus a temporal-only injection point for Cypress/Selenium/Puppeteer)
+rf/                   Robot Framework listener for temporal injection (issue #11) - Python, attached via `robot --listener`
+src/runner/           runs the user's suite and reads its result file (Playwright json, Robot output.xml, Cypress/Selenium Mocha json, Puppeteer Jest json)
 src/blindspots/       blindspots orchestration: mutation ack reading, scoring, report rendering
 src/snapshot.js       baseline capture (serialized tree plus raw html)
 src/report.js         markdown report renderer
