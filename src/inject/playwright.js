@@ -25,6 +25,8 @@ import { temporalScript } from '../probe/temporal.js';
 import { mutationScript } from '../probe/mutation-script.js';
 import { semanticMutations } from '../probe/catalogs/semantic.js';
 import { MUTATION_SURVIVED_FILE } from '../blindspots/ack.js';
+import { writeTemporalAck } from './shared/ack.js';
+import { writeMarker } from './shared/marker.js';
 
 const REPORT_FN = '__flakeproofTemporalMatchCount';
 const MUTATION_REPORT_FN = '__flakeproofMutationApplied';
@@ -53,15 +55,14 @@ export function withTemporal(base) {
         // sharing the same directory.
         const ackDir = process.env.FLAKEPROOF_TEMPORAL_ACK;
         // The wrapper is the only side of this with filesystem access, so it
-        // is the one that persists each receipt. Failing to write it must
-        // never break the user's test run.
-        const writeAck = async (count, ruleLive) => {
-          if (!ackDir) return;
-          const file = join(ackDir, `${process.pid}-${randomUUID()}.json`);
-          await mkdir(ackDir, { recursive: true })
-            .then(() => writeFile(file, JSON.stringify({ installed: true, count, ruleLive })))
-            .catch(() => {});
-        };
+        // is the one that persists each receipt - and, since issue #21, the
+        // one that also prints it as a stdout marker (see
+        // src/inject/shared/ack.js and src/inject/shared/marker.js), which
+        // reaches flakeproof even when the ack directory does not. Failing
+        // to write either must never break the user's test run; both
+        // writeTemporalAck and writeMarker already guarantee that on their
+        // own.
+        const writeAck = (count, ruleLive) => writeTemporalAck(ackDir, { count, ruleLive });
         if (ackDir) {
           // The page reports its own match count (and whether the delay
           // rule was actually live - see temporalScript and Fix 3) back
@@ -96,9 +97,22 @@ export function withTemporal(base) {
         const mutation = semanticMutations.find((m) => m.id === mutationId);
         const mutationAckDir = process.env.FLAKEPROOF_MUTATION_ACK;
         const writeMutationAck = async (fields) => {
+          const id = `${process.pid}-${randomUUID()}`;
+          const merged = { installed: true, ...fields };
+          // Since issue #21: the same receipt, as a marker on stdout, which
+          // reaches flakeproof even when mutationAckDir does not (a
+          // container or remote runner) - so it must not be gated on
+          // mutationAckDir being set. src/blindspots/ack.js merges markers
+          // back in by `id`, deduplicating a receipt that reached both
+          // channels; for `survived` specifically it also uses the ORDER
+          // markers appear on stdout as its recency signal, playing the
+          // same role the always-overwritten MUTATION_SURVIVED_FILE below
+          // plays for the file channel - see that function's header
+          // comment.
+          writeMarker('mutation', id, merged);
           if (!mutationAckDir) return;
-          const payload = JSON.stringify({ installed: true, ...fields });
-          const file = join(mutationAckDir, `${process.pid}-${randomUUID()}.json`);
+          const payload = JSON.stringify(merged);
+          const file = join(mutationAckDir, `${id}.json`);
           await mkdir(mutationAckDir, { recursive: true })
             .then(() => writeFile(file, payload))
             .catch(() => {});

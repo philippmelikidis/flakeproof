@@ -66,6 +66,19 @@ directory-based, one-writer-per-file scheme, so a later report is never lost
 to an earlier one overwriting it, and temporal-probe.js needed no changes at
 all to read this listener's receipts.
 
+Since issue #21, every write below ALSO prints the same receipt as one
+marker line on stdout, in the exact format src/inject/shared/marker.js
+defines and documents (`@@FLAKEPROOF-ACK@@` followed by compact JSON, one
+line, nothing else on it). That format must be kept byte-for-byte identical
+to the JS module's - it is duplicated here in Python rather than shared,
+since a robot listener cannot import a JS file, and it is what lets
+temporal-probe.js recover this listener's receipts from the suite's captured
+output even when the ack DIRECTORY above is on a filesystem flakeproof
+cannot see (a container, or a remote runner) - the reason this exists at
+all. The marker's `id` is the same one the file above is named with, so a
+reader that recovers the same receipt from both channels counts it once
+(see dedupeById in marker.js).
+
 Two reports are written per injection, matching the two-report pattern
 src/probe/temporal.js documents for Playwright: an immediate one (taken
 right when the hiding rule is installed) and a later one taken after the
@@ -84,6 +97,7 @@ break the user's suite.
 
 import json
 import os
+import sys
 import threading
 import uuid
 
@@ -132,12 +146,48 @@ _INSTALL_SCRIPT = """(arg) => {
 _READBACK_SCRIPT = "() => window.__flakeproofTemporalResult || null"
 
 
+# Must match src/inject/shared/marker.js's MARKER_PREFIX exactly.
+_MARKER_PREFIX = "@@FLAKEPROOF-ACK@@"
+
+
+def _write_marker(receipt_id, payload):
+    # Same schema marker.js's "temporal" kind validates: installed, count,
+    # ruleLive, error - every key present, defaulting to None rather than
+    # being omitted, since the JS reader's parser refuses a marker missing
+    # any schema field (fail closed on anything it cannot fully validate).
+    marker = {
+        "id": receipt_id,
+        "kind": "temporal",
+        "installed": bool(payload.get("installed")),
+        "count": payload.get("count"),
+        "ruleLive": payload.get("ruleLive"),
+        "error": payload.get("error"),
+    }
+    try:
+        # Leading newline: see src/inject/shared/marker.js's formatMarker,
+        # which this must match byte-for-byte. Robot's own console printer
+        # can still have a test's status line open (no trailing newline
+        # yet) at the exact moment this listener fires mid-keyword; this
+        # guarantees the marker starts its own line regardless.
+        line = "\n" + _MARKER_PREFIX + json.dumps(marker, separators=(",", ":")) + "\n"
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    except Exception:  # noqa: BLE001 - reporting must never break the suite
+        pass
+
+
 def _write_ack(ack_dir, payload):
+    # The marker goes out regardless of whether the file write below can
+    # succeed (or whether ack_dir was even usable) - it is the channel that
+    # survives a filesystem boundary the directory write cannot cross, so it
+    # must not be gated on that write succeeding.
+    receipt_id = "%d-%s" % (os.getpid(), uuid.uuid4().hex)
+    _write_marker(receipt_id, payload)
     if not ack_dir:
         return
     try:
         os.makedirs(ack_dir, exist_ok=True)
-        file_name = "%d-%s.json" % (os.getpid(), uuid.uuid4().hex)
+        file_name = "%s.json" % receipt_id
         with open(os.path.join(ack_dir, file_name), "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
     except OSError:
