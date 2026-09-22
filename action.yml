@@ -113,9 +113,17 @@ runs:
     - name: Resolve inputs
       id: resolve
       shell: bash
+      # No FLAKEPROOF_WORKDIR here on purpose. `working-directory` above
+      # already runs this step inside the target project, and the scripts
+      # fall back to process.cwd(). Passing the same relative path again
+      # made it resolve a SECOND time, against the directory it had just
+      # moved into, so ".github/selfcheck" became
+      # ".github/selfcheck/.github/selfcheck" and the config was never
+      # found. That only shows up when working-directory is not the repo
+      # root, which is why the unit tests and a local run both missed it
+      # and the first real runner caught it immediately.
       working-directory: ${{ inputs.working-directory }}
       env:
-        FLAKEPROOF_WORKDIR: ${{ inputs.working-directory }}
         INPUT_TEST_COMMAND: ${{ inputs.test-command }}
         INPUT_APP_URL: ${{ inputs.app-url }}
         INPUT_RESULTS_PATH: ${{ inputs.results-path }}
@@ -133,9 +141,10 @@ runs:
     - name: Run test suite and triage failures
       id: run
       shell: bash
+      # See the note on the resolve step above: working-directory alone,
+      # never also FLAKEPROOF_WORKDIR.
       working-directory: ${{ inputs.working-directory }}
       env:
-        FLAKEPROOF_WORKDIR: ${{ inputs.working-directory }}
         FLAKEPROOF_SUMMARY_PATH: ${{ github.action_path }}/flakeproof-summary.md
         FLAKEPROOF_HTML_PATH: ${{ github.action_path }}/flakeproof-report.html
         INPUT_TEST_COMMAND: ${{ inputs.test-command }}
