@@ -114,7 +114,8 @@ Honesty is a design rule here: `unclear` is a first-class verdict, abstaining be
                       (--current-url <url> | --current <file.json>)
                       [--rerun-cmd <command>] [--reruns <n>] [--temporal] [--json] [--out <file.md|file.html>] [--open]
     flakeproof baseline <url> [--out <file.json>]
-    flakeproof run [--cmd <command>] [--url <url>] [--results <file>] [--reader playwright|robot]
+    flakeproof run [--cmd <command>] [--url <url>] [--results <file>]
+                   [--reader playwright|robot|cypress|selenium|puppeteer]
                    [--baseline <file.json>] [--out <file.md|file.html>]
     flakeproof blindspots [--cmd <command>] [--results <file>] [--reader playwright]
                           --selectors <sel1,sel2,...> [--mutations <id1,id2,...>]
@@ -262,14 +263,22 @@ Inputs mirror `flakeproof.config.json` so a project that already has one passes 
 
 The comment is updated in place on every push to the pull request (matched by a hidden marker in the comment body), rather than piling up a new one each time, and it says plainly when flakeproof abstained - either because it could not tell which tests failed at all, or because individual verdicts came back `unclear`, `no-anchor` or `nondeterministic` - instead of letting silence read as a clean bill of health.
 
-### Verified locally vs. not verified
+### Verified on a real runner
 
-This action has not been run on GitHub's own infrastructure as part of this change (that requires a live PR and a running app to gate). What was checked without that:
+`.github/workflows/selfcheck.yml` points this action at flakeproof itself on every pull request. It serves the repository's own fixture pages, records a baseline from the green one, and runs a deliberately fragile suite against the changed one, so each pull request carries a real gate comment produced by a real GitHub runner.
+
+Running it for the first time found three bugs that every local check had missed, which is the honest argument for having it:
+
+- `working-directory` and `FLAKEPROOF_WORKDIR` were both applied, so a relative path resolved a second time inside itself and the config was never found. Only visible when the target project is not the repository root. `test/action-yaml.test.js` now fails if any step does this again.
+- the report was written under `github.action_path`, which is `<workspace>/.` for a local `uses: ./`, and `actions/upload-artifact` rejects a path with `.` as a segment. Intermediate files now go to `runner.temp`.
+- the comment step was gated on the upload succeeding, so a failed artifact upload silently swallowed the verdict. The comment is the point of the gate; it now runs regardless, as long as the triage itself succeeded.
+
+What is checked without a runner:
 
 - `action/scripts/resolve-inputs.js`, `run-and-report.js` and `post-comment.js` are unit-tested directly (`test/action-resolve-inputs.test.js`, `test/action-run-and-report.test.js`, `test/action-post-comment.test.js`), including the GitHub REST calls in `post-comment.js` against an injected fake `fetch`.
 - `test/action-yaml.test.js` structurally validates `action.yml`: required composite-action keys are present, every `${{ inputs.X }}` and `${{ steps.ID.outputs.Y }}` expression resolves to something actually declared, every `run:` step declares `shell:`, every `uses:` is pinned to a tag, and every script path the action invokes exists on disk. This is a purpose-built scanner for this file's shape, not a general yaml/schema validator.
 
-Not verified: the actual GitHub Actions runtime behaviour (composite `if:` conditions, `actions/download-artifact` and `actions/upload-artifact` outputs like `artifact-url`, how `working-directory` interacts with `github.action_path` when this action is consumed from a different repository, and the pull-request comment round-trip against the real GitHub API).
+Still not verified: consuming this action from a *different* repository (the self-check uses `uses: ./`, so `github.action_path` is this checkout), and `baseline-artifact-name` restoring a baseline from a prior job, which the self-check records inline instead.
 
 ## Status
 
@@ -280,7 +289,7 @@ Shipped and covered by the test suite:
 - **The auto runner** (`flakeproof run`/`baseline`): one command drives the suite, reads its result file, triages every failure and writes one report, instead of assembling a baseline/error-file/url by hand per failure.
 - **The visual HTML report**: a single self-contained file with the verdict, the anchor before/after, every step taken, and all proven candidates ranked, not just the first one.
 - **Blindspots** (does a green suite notice a real change at all): Playwright-only today - see "Blindspots" above for exactly what counts and what does not.
-- **The GitHub Action** (`action.yml`): wraps the auto runner as a PR-comment gate, non-blocking by default. Unit- and structurally-tested (`test/action-*.test.js`), but not yet exercised against a live PR on GitHub's own infrastructure - see "Verified locally vs. not verified" above for the exact boundary.
+- **The GitHub Action** (`action.yml`): wraps the auto runner as a PR-comment gate, non-blocking by default. Unit- and structurally-tested (`test/action-*.test.js`) and exercised on every pull request against this repository itself via `.github/workflows/selfcheck.yml` - see "Verified on a real runner" above for what that does and does not cover.
 
 Phase 0 established the measurement foundation underneath all of this: across 37 mutated fixture and live-site cases the classifier produced 0 misclassifications, with every abstention documented. Full numbers in `spikes/phase0-report.md`, reproducible via `npm run spike`.
 
