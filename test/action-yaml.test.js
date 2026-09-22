@@ -153,3 +153,38 @@ test('scripts referenced from run: steps exist on disk', async () => {
     assert.ok(existsSync(p), `action.yml references action/scripts/${name}, which does not exist`);
   }
 });
+
+// A step that already runs inside `working-directory` must not ALSO be told
+// the same relative path through FLAKEPROOF_WORKDIR: the scripts resolve
+// that value against the current directory, so a relative path gets applied
+// twice and the target project is looked for inside itself. The first real
+// runner caught this ('.github/selfcheck' became
+// '.github/selfcheck/.github/selfcheck', so flakeproof.config.json was never
+// found and the gate failed with "no test command"). Local runs missed it
+// entirely because they happened to start from the repository root, where
+// applying the path twice is harmless.
+test('no step both changes into working-directory and passes it again as FLAKEPROOF_WORKDIR', async () => {
+  const source = await readActionYaml();
+  const stepChunks = source.split(/\n {4}- /).slice(1);
+  assert.ok(stepChunks.length > 0, 'expected the scanner to find steps in action.yml');
+
+  const offenders = [];
+  for (const chunk of stepChunks) {
+    const body = chunk.replace(/^(#[^\n]*\n\s*)*/, '');
+    const nameMatch = body.match(/name:\s*(.+)/);
+    const name = nameMatch ? nameMatch[1].trim() : '(unnamed step)';
+    const uncommented = body
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('#'))
+      .join('\n');
+    const changesDir = /working-directory:\s*\$\{\{\s*inputs\.working-directory\s*\}\}/.test(uncommented);
+    const passesWorkdir = /FLAKEPROOF_WORKDIR:\s*\$\{\{\s*inputs\.working-directory\s*\}\}/.test(uncommented);
+    if (changesDir && passesWorkdir) offenders.push(name);
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `these steps apply inputs.working-directory twice, so a relative path resolves inside itself: ${offenders.join(', ')}`,
+  );
+});

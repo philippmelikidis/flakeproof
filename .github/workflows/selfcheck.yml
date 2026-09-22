@@ -1,0 +1,78 @@
+# Runs flakeproof's own composite action against flakeproof, on every pull
+# request. The unit tests cover the action's scripts; this covers the thing
+# they cannot: that action.yml actually works on GitHub's runner, that the
+# comment reaches the pull request, and that the artifact uploads.
+#
+# The suite it triages is deliberately fragile (see .github/selfcheck). The
+# expected outcome is a "fragile" verdict with a proven replacement selector,
+# so a comment that says anything else is a real signal worth reading.
+name: flakeproof self-check
+
+on:
+  pull_request:
+
+# The gate comments on the pull request, so it needs write access to it.
+# Nothing else.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  selfcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Serve the green build and the changed build
+        run: |
+          node -e '
+            const http = require("http"), fs = require("fs"), path = require("path");
+            function serve(dir, port) {
+              http.createServer((q, s) => {
+                const f = path.join(dir, q.url === "/" ? "index.html" : q.url.slice(1));
+                fs.readFile(f, (e, d) => {
+                  if (e) { s.writeHead(404); s.end("not found"); return; }
+                  s.writeHead(200, { "content-type": f.endsWith(".svg") ? "image/svg+xml" : "text/html" });
+                  s.end(d);
+                });
+              }).listen(port);
+            }
+            serve("test/fixtures/page", 8401);
+            serve("test/fixtures/page-v2", 8402);
+          ' &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8401/ >/dev/null 2>&1 && curl -fsS http://127.0.0.1:8402/ >/dev/null 2>&1; then
+              echo "both fixture servers are up"
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "fixture servers did not come up" >&2
+          exit 1
+
+      - name: Record the baseline from the green build
+        run: |
+          mkdir -p .github/selfcheck/.flakeproof
+          node bin/flakeproof.js baseline http://127.0.0.1:8401/ \
+            --out .github/selfcheck/.flakeproof/baseline.json
+
+      # The action under test. Dependencies and browsers are already
+      # installed above, so it is told to skip both rather than redo them.
+      - name: flakeproof gate
+        uses: ./
+        with:
+          working-directory: .github/selfcheck
+          app-url: http://127.0.0.1:8402/
+          install-command: ''
+          install-playwright-browsers: 'false'
+          artifact-name: flakeproof-selfcheck-report
+        env:
+          FIXTURE_URL: http://127.0.0.1:8402/

@@ -8,3 +8,6 @@ node_modules/
 test/fixtures/pw/results.json
 results.json
 test-results/
+demo-report.html
+.github/selfcheck/.flakeproof/
+.github/selfcheck/results.json

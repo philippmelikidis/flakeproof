@@ -218,6 +218,30 @@ export async function triage(opts) {
               if (temporal.tried.length > 0) {
                 step('Provoked a delay on the anchor', temporal.reproduced ? 'reproduced at ' + temporal.delay + ' ms' : 'no reproduction', temporal.reproduced);
               }
+              // Issue #21: the inject wrapper's ack directory lives on the
+              // filesystem of whatever process actually ran the suite. When
+              // that process runs in a container or on a remote runner,
+              // this process cannot see it - so temporalProbe also merges
+              // in ack markers recovered from the command's captured
+              // stdout, which DOES cross that boundary. `stdoutOnly` is
+              // true only when every round's proof of installation came
+              // exclusively from those markers, never from a single file on
+              // disk: the wrapper genuinely IS installed and the suite ran
+              // somewhere this process cannot see the filesystem of, not
+              // that it is missing. This note is added unconditionally
+              // ahead of the verdict-specific branches below so it applies
+              // no matter which of them ends up firing, and the "install
+              // withTemporal" branch further down is only reachable at all
+              // when `temporal.injected` is NOT `true` - which `stdoutOnly`
+              // already implies it is - so the two messages can never fire
+              // for the same result.
+              if (temporal.stdoutOnly) {
+                notes.push(
+                  'the inject wrapper only acknowledged the delay on stdout, never on the filesystem; the suite most ' +
+                    'likely ran somewhere this process cannot see the filesystem of (a container or a remote runner) - ' +
+                    'nothing needs to be installed, and the timing measurement below is still valid',
+                );
+              }
               // Every branch below must be defensible from exactly what
               // temporalProbe observed - never phrase a stronger claim than
               // the evidence supports, and never a weaker one either. The

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withTemporal } from '../src/inject/playwright.js';
 import { readMutationAck, MUTATION_SURVIVED_FILE } from '../src/blindspots/ack.js';
+import { captureStdout } from './helpers/capture-stdout.js';
 
 // FLAKEPROOF_TEMPORAL_ACK is a directory: every acknowledging write gets its
 // own uniquely named file inside it (see Fix 1 in the review). This reads
@@ -98,6 +99,57 @@ test('injects the temporal script and acknowledges installation before any count
     delete process.env.FLAKEPROOF_TEMPORAL_SELECTOR;
     delete process.env.FLAKEPROOF_TEMPORAL_MS;
     delete process.env.FLAKEPROOF_TEMPORAL_ACK;
+    await rm(ackDir, { recursive: true, force: true });
+  }
+});
+
+// Issue #21: every temporal ack write also goes out as a marker on stdout -
+// src/inject/playwright.js's temporal writeAck now delegates to the shared
+// writeTemporalAck (src/inject/shared/ack.js), so this proves that
+// delegation actually wires the marker through for the flagship Playwright
+// path, with the id matching the file's.
+test('the temporal ack is also acknowledged as a stdout marker sharing the file\'s id', async () => {
+  process.env.FLAKEPROOF_TEMPORAL_SELECTOR = '#cta';
+  process.env.FLAKEPROOF_TEMPORAL_MS = '800';
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-ack-'));
+  process.env.FLAKEPROOF_TEMPORAL_ACK = ackDir;
+  try {
+    const { markers } = await captureStdout(() => runContextFixture(withTemporal(stubBase()), stubContext()));
+    assert.equal(markers.length, 1, 'the initial installation receipt');
+    assert.equal(markers[0].kind, 'temporal');
+    assert.deepEqual(
+      { installed: markers[0].installed, count: markers[0].count, ruleLive: markers[0].ruleLive },
+      { installed: true, count: null, ruleLive: null },
+    );
+    const [fileEntry] = await readdir(ackDir);
+    assert.equal(markers[0].id, fileEntry.replace(/\.json$/, ''), 'the marker and the file must share one id');
+  } finally {
+    delete process.env.FLAKEPROOF_TEMPORAL_SELECTOR;
+    delete process.env.FLAKEPROOF_TEMPORAL_MS;
+    delete process.env.FLAKEPROOF_TEMPORAL_ACK;
+    await rm(ackDir, { recursive: true, force: true });
+  }
+});
+
+test('the mutation ack is also acknowledged as a stdout marker sharing the file\'s id', async () => {
+  process.env.FLAKEPROOF_MUTATION_ID = 'change-text';
+  process.env.FLAKEPROOF_MUTATION_SELECTOR = '#header-title';
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-mutation-ack-'));
+  process.env.FLAKEPROOF_MUTATION_ACK = ackDir;
+  try {
+    const { markers } = await captureStdout(() => runContextFixture(withTemporal(stubBase()), stubContext()));
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].kind, 'mutation');
+    assert.deepEqual(
+      { installed: markers[0].installed, applied: markers[0].applied, survived: markers[0].survived, frame: markers[0].frame, found: markers[0].found },
+      { installed: true, applied: null, survived: null, frame: null, found: null },
+    );
+    const [fileEntry] = await readdir(ackDir);
+    assert.equal(markers[0].id, fileEntry.replace(/\.json$/, ''), 'the marker and the file must share one id');
+  } finally {
+    delete process.env.FLAKEPROOF_MUTATION_ID;
+    delete process.env.FLAKEPROOF_MUTATION_SELECTOR;
+    delete process.env.FLAKEPROOF_MUTATION_ACK;
     await rm(ackDir, { recursive: true, force: true });
   }
 });
