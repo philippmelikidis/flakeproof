@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installTemporal } from '../src/inject/selenium.js';
+import { captureStdout } from './helpers/capture-stdout.js';
 
 async function readAcks(ackDir) {
   if (!existsSync(ackDir)) return [];
@@ -69,6 +70,32 @@ test('installs the script via CDP and acknowledges installation before any count
     const afterReport = await readAcks(ackDir);
     assert.equal(afterReport.length, 2);
     assert.ok(afterReport.some((a) => a.count === 1 && a.ruleLive === true));
+  } finally {
+    await rm(ackDir, { recursive: true, force: true });
+  }
+});
+
+// Issue #21: the CDP path still runs in Node (it is Node's own websocket
+// listener reacting to a binding call, not browser-page code), so it can
+// print directly to stdout exactly like the other Node-side writers.
+test('also acknowledges installation as a stdout marker, with the same id the file uses', async () => {
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-sel-ack-'));
+  try {
+    const connection = stubConnection();
+    const driver = stubDriver(connection);
+    const { markers } = await captureStdout(() =>
+      installTemporal(driver, {
+        env: { FLAKEPROOF_TEMPORAL_SELECTOR: '#cta', FLAKEPROOF_TEMPORAL_MS: '800', FLAKEPROOF_TEMPORAL_ACK: ackDir },
+      }),
+    );
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].kind, 'temporal');
+    assert.deepEqual(
+      { installed: markers[0].installed, count: markers[0].count, ruleLive: markers[0].ruleLive },
+      { installed: true, count: null, ruleLive: null },
+    );
+    const [fileEntry] = await readdir(ackDir);
+    assert.equal(markers[0].id, fileEntry.replace(/\.json$/, ''), 'the marker and the file must share one id');
   } finally {
     await rm(ackDir, { recursive: true, force: true });
   }
