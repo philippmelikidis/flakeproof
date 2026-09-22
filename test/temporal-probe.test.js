@@ -421,6 +421,105 @@ test('an explicit {"installed": false} ack is read as not installed, not inverte
   }
 });
 
+// Issue #21: the ack directory is on a filesystem flakeproof cannot see (no
+// file ever appears at ackPath), but the wrapper's stdout marker still
+// crosses the pipe flakeproof itself spawned the command over. This must
+// read as installed, backed by the marker's own count/ruleLive, and marked
+// `stdoutOnly` so a caller can say what actually happened instead of
+// falsely claiming the wrapper is missing.
+test('a receipt that only ever reaches stdout (no ack file at all) still counts as installed, marked stdoutOnly', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+    const script = join(dir, 'stdout-only.cjs');
+    await writeFile(
+      script,
+      'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'if(ms>0){' +
+        'process.stdout.write("\\n@@FLAKEPROOF-ACK@@" + JSON.stringify({id:"so-"+ms,kind:"temporal",installed:true,count:1,ruleLive:true,error:null}) + "\\n");' +
+        '}' +
+        // Deliberately never touches FLAKEPROOF_TEMPORAL_ACK - the file
+        // channel is exactly as invisible as it would be in a container.
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await temporalProbe(`node ${script}`, '#cta', { delays: [500], runsPerDelay: 2 });
+    assert.equal(result.reproduced, true, 'a confirmed nonzero match with a live rule still backs a reproduction claim');
+    assert.equal(result.injected, true);
+    assert.equal(result.matched, 1);
+    assert.equal(result.ruleLive, true);
+    assert.equal(result.stdoutOnly, true, 'no file evidence exists anywhere, only the marker');
+    assert.equal(result.tried.at(-1).fileEvidence, false);
+    assert.equal(result.tried.at(-1).stdoutEvidence, true);
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The unchanged case: when the ack FILE is present, `stdoutOnly` must stay
+// false even if a marker was also printed alongside it (the normal,
+// filesystem-visible situation) - file evidence, once present, keeps this
+// the exact behavior this file always had.
+test('a receipt present on both the file and stdout is not stdoutOnly - the file-based case is unchanged', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+    const script = join(dir, 'both-channels.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const path=require("path");' +
+        'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack){' +
+        'fs.mkdirSync(ack,{recursive:true});' +
+        'const id="both-"+ms;' +
+        'fs.writeFileSync(path.join(ack,id+".json"),JSON.stringify({installed:true,count:1,ruleLive:true}));' +
+        'process.stdout.write("\\n@@FLAKEPROOF-ACK@@" + JSON.stringify({id,kind:"temporal",installed:true,count:1,ruleLive:true,error:null}) + "\\n");' +
+        '}' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await temporalProbe(`node ${script}`, '#cta', { delays: [500], runsPerDelay: 1 });
+    assert.equal(result.reproduced, true);
+    assert.equal(result.stdoutOnly, false);
+    assert.equal(result.tried.at(-1).fileEvidence, true);
+    assert.equal(result.tried.at(-1).stdoutEvidence, true);
+    // The file and the marker share one id (both written from the SAME
+    // `id="both-"+ms`), so the merge must recognize them as ONE receipt,
+    // not two - proving the dedup, not just that both sources were read.
+    assert.equal(result.tried.at(-1).receipts, 1, 'the same receipt reaching both channels must count once, not twice');
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Direct proof that deduplication - not merely "both sources were
+// consulted" - is what keeps the receipt count honest: two DIFFERENT
+// receipts (different ids) from the two different sources must both be
+// counted, distinguishing this from a merge that just always reports 1.
+test('two distinct receipts from different sources (no id collision) are both counted', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-probe-'));
+    const script = join(dir, 'distinct-receipts.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const path=require("path");' +
+        'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack){' +
+        'fs.mkdirSync(ack,{recursive:true});' +
+        'fs.writeFileSync(path.join(ack,"file-only.json"),JSON.stringify({installed:true,count:1,ruleLive:true}));' +
+        'process.stdout.write("\\n@@FLAKEPROOF-ACK@@" + JSON.stringify({id:"stdout-only",kind:"temporal",installed:true,count:2,ruleLive:true,error:null}) + "\\n");' +
+        '}' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await temporalProbe(`node ${script}`, '#cta', { delays: [500], runsPerDelay: 1 });
+    assert.equal(result.tried.at(-1).receipts, 2, 'two genuinely distinct ids must both survive the merge');
+    assert.equal(result.matched, 2, 'the strongest known count (from either source) must still win');
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('garbage ack content is not silently read as proof of installation', async () => {
   let dir = null;
   try {

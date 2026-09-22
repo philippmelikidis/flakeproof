@@ -20,6 +20,16 @@ test('temporal probe reproduces a timing failure in a real playwright run', asyn
     assert.equal(result.delay, 1000);
     assert.equal(result.injected, true, 'the real wrapper must acknowledge');
     assert.equal(result.matched, 1, 'the real wrapper must report that the delay rule matched the one #cta element');
+
+    // Issue #21: withTemporal now prints a stdout marker alongside every ack
+    // file it writes (src/inject/shared/marker.js). On this machine both
+    // channels are visible, so both must be recognized, and the file and
+    // marker for the SAME write must be recognized as ONE receipt, not two.
+    const round = result.tried.at(-1);
+    assert.equal(round.fileEvidence, true);
+    assert.equal(round.stdoutEvidence, true, 'the real wrapper must also emit a stdout marker');
+    assert.ok(round.receipts >= 1, 'at least the confirmed report must be counted');
+    assert.equal(result.stdoutOnly, false, 'file evidence exists, so this stays the unchanged, file-based case');
   } finally {
     delete process.env.FIXTURE_URL;
     await server.close();

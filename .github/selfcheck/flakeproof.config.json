@@ -1,0 +1,6 @@
+{
+  "cmd": "npx playwright test --config playwright.config.js",
+  "results": "results.json",
+  "reader": "playwright",
+  "baseline": ".flakeproof/baseline.json"
+}

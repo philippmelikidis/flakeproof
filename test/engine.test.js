@@ -445,6 +445,125 @@ test('a missing inject wrapper is named instead of blaming timing', async () => 
   }
 });
 
+// Issue #21: the suite ran somewhere flakeproof cannot see the filesystem of
+// (simulated here by a fixture that never writes the ack FILE at all - only
+// the wrapper's real stdout marker gets by-directly acknowledges here, since a
+// container's writable layer is exactly as invisible to this process as no
+// write ever happening). The message must say the wrapper IS installed and
+// the measurement is still valid, and must NEVER say to install anything -
+// that would be a false claim about a wrapper that plainly is installed.
+test('a wrapper acknowledged only on stdout is never told to install anything, and the measurement stays valid', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'stdout-only.cjs');
+    await writeFile(
+      script,
+      'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'if(ms>0){' +
+        'process.stdout.write("\\n@@FLAKEPROOF-ACK@@" + JSON.stringify({id:"stdout-only-"+ms,kind:"temporal",installed:true,count:1,ruleLive:true,error:null}) + "\\n");' +
+        '}' +
+        // Deliberately NEVER writes to process.env.FLAKEPROOF_TEMPORAL_ACK -
+        // the file channel is invisible here, exactly like a container whose
+        // writable layer never reaches the host.
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.injected, true, 'the marker proves the wrapper genuinely ran');
+    assert.equal(result.temporal.stdoutOnly, true, 'no ack file was ever written, only the marker');
+    assert.equal(result.temporal.reproduced, true, 'a confirmed nonzero match with a live rule still backs a reproduction claim');
+    assert.ok(
+      result.notes.some((note) => note.includes('only acknowledged the delay on stdout') && note.includes('still valid')),
+      `expected the stdout-only note, got: ${JSON.stringify(result.notes)}`,
+    );
+    assert.ok(
+      !result.notes.some((note) => note.includes('install withTemporal')),
+      `a wrapper proven installed must never be told to install anything, got: ${JSON.stringify(result.notes)}`,
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The counterpart to the reproducing case above: no reproduction either
+// (the delay never actually mattered), but the stdout-only note must still
+// appear, and the "never acknowledged" wording must still never appear -
+// three distinct outcomes, three distinct messages, never conflated.
+test('a wrapper acknowledged only on stdout that never reproduces still gets the stdout-only note, not "never acknowledged"', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'stdout-only-no-repro.cjs');
+    await writeFile(
+      script,
+      'const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'if(ms>0){' +
+        'process.stdout.write("\\n@@FLAKEPROOF-ACK@@" + JSON.stringify({id:"stdout-only-nr-"+ms,kind:"temporal",installed:true,count:1,ruleLive:true,error:null}) + "\\n");' +
+        '}' +
+        'process.exit(0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.injected, true);
+    assert.equal(result.temporal.stdoutOnly, true);
+    assert.equal(result.temporal.reproduced, false);
+    assert.ok(
+      result.notes.some((note) => note.includes('only acknowledged the delay on stdout')),
+      JSON.stringify(result.notes),
+    );
+    assert.ok(!result.notes.some((note) => note.includes('never acknowledged')), JSON.stringify(result.notes));
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A receipt written to BOTH the ack file and stdout for the SAME write (the
+// normal, filesystem-visible case) must be recognized as file evidence, so
+// the unchanged behavior applies: no stdout-only note, `stdoutOnly: false`.
+test('a wrapper acknowledged on both the file and stdout stays the unchanged, file-based case', async () => {
+  let dir = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'fp-engine-'));
+    const script = join(dir, 'both-channels.cjs');
+    await writeFile(
+      script,
+      'const fs=require("fs");const ms=Number(process.env.FLAKEPROOF_TEMPORAL_MS||0);' +
+        'const ack=process.env.FLAKEPROOF_TEMPORAL_ACK;' +
+        'if(ms>0&&ack){' +
+        'fs.writeFileSync(ack,JSON.stringify({installed:true,count:1,ruleLive:true}));' +
+        'process.stdout.write("\\n@@FLAKEPROOF-ACK@@" + JSON.stringify({id:"both-"+ms,kind:"temporal",installed:true,count:1,ruleLive:true,error:null}) + "\\n");' +
+        '}' +
+        'process.exit(ms>=500?1:0);',
+    );
+    const result = await triage({
+      errorText: timeoutError('#cta'),
+      rerunCommand: `node ${script}`,
+      reruns: 2,
+      temporal: true,
+    });
+    assert.equal(result.verdict, 'nondeterministic');
+    assert.equal(result.temporal.reproduced, true);
+    assert.equal(result.temporal.stdoutOnly, false, 'file evidence exists, so this is not the stdout-only case');
+    assert.ok(
+      !result.notes.some((note) => note.includes('only acknowledged the delay on stdout')),
+      JSON.stringify(result.notes),
+    );
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('temporal control abort when baseline is too unstable', async () => {
   let dir = null;
   try {

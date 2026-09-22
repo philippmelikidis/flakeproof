@@ -55,6 +55,20 @@ test('rf temporal listener reproduces a timing failure in a real robot run', { s
     assert.equal(result.injected, true, 'the listener must acknowledge installation');
     assert.equal(result.matched, 1, 'the listener must report the delay rule matched the one #cta element');
     assert.equal(result.ruleLive, true);
+
+    // Issue #21: the listener writes each of its two receipts (the initial
+    // "installed" ack, then the confirmed-live one at window-close) BOTH to
+    // the ack directory AND as a stdout marker (rf/FlakeproofTemporalListener.py's
+    // _write_marker). On this machine both channels are visible, so both
+    // must be recognized (`fileEvidence`/`stdoutEvidence` both true) and,
+    // critically, the two writes must be recognized as exactly two distinct
+    // receipts - not four - proving the file and the marker for the SAME
+    // write are deduplicated by id rather than double-counted.
+    const round = result.tried.at(-1);
+    assert.equal(round.fileEvidence, true, 'the ack directory was genuinely readable here');
+    assert.equal(round.stdoutEvidence, true, 'the listener must also emit a stdout marker for a real robot run');
+    assert.equal(round.receipts, 2, 'two writes (install + window-close), never four: the file and marker for each write must count once');
+    assert.equal(result.stdoutOnly, false, 'file evidence exists, so this is the unchanged, file-based case, not the stdout-only one');
   } finally {
     delete process.env.FIXTURE_URL;
     await server.close();

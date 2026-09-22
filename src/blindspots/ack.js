@@ -8,8 +8,20 @@
 // describes an evolving state, not an independent per-writer fact, so it is
 // read from whichever report landed most recently instead (see
 // `MUTATION_SURVIVED_FILE` below).
+//
+// Since issue #21, every write src/inject/playwright.js makes here also
+// prints the same receipt as a marker line on stdout
+// (src/inject/shared/marker.js), because stdout crosses a container/remote-
+// runner boundary the ack directory cannot. `readMutationAck` merges
+// markers recovered from the round's captured stdout in alongside whatever
+// it found on disk, deduplicating a receipt that reached both channels by
+// the stable id every writer gives it (see dedupeById), and reports
+// `stdoutOnly` so a caller can tell "installed, proven by a file" apart
+// from "installed, proven ONLY by a stdout marker" - see its use in
+// src/blindspots/measure.js.
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parseMarkers, dedupeById } from '../inject/shared/marker.js';
 
 // The one ack file name src/inject/playwright.js overwrites (never
 // randomly-named like every other ack file) so that reading it back always
@@ -66,95 +78,151 @@ function pickBoolean(payloads, key) {
   return null;
 }
 
-// Reads and interprets one round's acknowledgment at `ackPath` (the value
-// handed to the wrapper via FLAKEPROOF_MUTATION_ACK).
+// Turns every `kind: 'mutation'` marker recovered from a round's captured
+// stdout into the same shape a file-derived payload has, carrying its `id`
+// along for dedup - preserving the order markers appeared on stdout, which
+// is the only "recency" signal available for `survived` on this channel
+// (see the fallback below; there is no equivalent of overwriting a single
+// file). A `kind: 'temporal'` marker sharing the same stdout, from the
+// OTHER probe lane, is never mistaken for mutation evidence.
+function markerPayloads(stdout) {
+  return parseMarkers(stdout)
+    .filter((m) => m.kind === 'mutation')
+    .map((m) => ({ id: m.id, installed: m.installed === true, applied: m.applied, survived: m.survived, frame: m.frame, found: m.found, error: m.error }));
+}
+
+// Reads and interprets one round's acknowledgment: whatever `ackPath` (the
+// value handed to the wrapper via FLAKEPROOF_MUTATION_ACK) holds on disk,
+// merged with whatever `stdout` (that round's captured command output)
+// carries as markers - see the module header comment on why both exist.
 //
-// Returns `{ installed, applied, survived, frame, found, error, unreadable
-// }`:
-//   - `installed`: `true` (at least one file positively confirms
-//     installation), `false` (nothing at ackPath at all, or every file
-//     positively says `installed: false`), or `null` (something is at
-//     ackPath but could not be interpreted as a real receipt).
+// Returns `{ installed, applied, survived, frame, found, error, unreadable,
+// stdoutOnly }`:
+//   - `installed`: `true` (at least one payload, from either source,
+//     positively confirms installation), `false` (nothing at ackPath at all
+//     AND no marker on stdout either, or every payload positively says
+//     `installed: false`), or `null` (something exists but could not be
+//     interpreted as a real receipt).
 //   - `applied`, `survived`, `found`: the strongest known evidence, per
-//     `pickBoolean` above.
+//     `pickBoolean` above, computed over the MERGED and deduplicated list.
 //   - `frame`: the frame URL from whichever confirmed writer reported one,
 //     preferring a writer that also reported `applied: true` (the frame the
 //     mutation actually happened in matters far more than one that merely
 //     looked and found nothing) - `null` when no writer reported a frame.
 //   - `error`: the first confirmed writer's `error` string, or `null`.
-//   - `unreadable`: `true` only when NO usable payload could be recovered at
-//     all (every entry failed to read, or the directory listing itself
-//     failed) - distinct from a genuinely missing ack, so the user is never
-//     told to install the wrapper when the real problem is filesystem
-//     permissions.
-export async function readMutationAck(ackPath) {
+//   - `unreadable`: `true` only when NO usable payload could be recovered
+//     from EITHER source - distinct from a genuinely missing ack, so the
+//     user is never told to install the wrapper when the real problem is
+//     filesystem permissions, and a usable stdout marker must never be
+//     discarded just because the ack directory itself was unreadable.
+//   - `stdoutOnly`: `true` only when `installed` is `true` but every bit of
+//     that evidence came from stdout markers, never from a single file on
+//     disk - the wrapper genuinely IS installed and the suite ran somewhere
+//     this process cannot see the filesystem of (issue #21).
+export async function readMutationAck(ackPath, stdout = '') {
+  const stdoutPayloads = markerPayloads(stdout);
+  const stdoutEvidence = stdoutPayloads.length > 0;
+
+  let filePayloads = [];
+  let fileUnreadable = false;
+  let survivedFilePayload = null;
+
   let info;
   try {
     info = await stat(ackPath);
   } catch {
-    return { installed: false, applied: null, survived: null, frame: null, found: null, error: null, unreadable: false };
+    info = null;
   }
 
-  if (!info.isDirectory()) {
+  if (info && info.isDirectory()) {
+    let entries;
+    try {
+      entries = await readdir(ackPath);
+    } catch {
+      fileUnreadable = true;
+      entries = null;
+    }
+    if (entries) {
+      let anyFileUnreadable = false;
+      for (const entry of entries) {
+        let raw;
+        try {
+          raw = await readFile(join(ackPath, entry), 'utf8');
+        } catch {
+          anyFileUnreadable = true;
+          continue;
+        }
+        const parsed = parseAckPayload(raw);
+        filePayloads.push({ id: entry.replace(/\.json$/, ''), ...parsed });
+        if (entry === MUTATION_SURVIVED_FILE) survivedFilePayload = parsed;
+      }
+      fileUnreadable = anyFileUnreadable && filePayloads.length === 0;
+    }
+  } else if (info) {
     // Not the shape the current wrapper produces, but read defensively
     // rather than throwing.
-    let raw;
     try {
-      raw = await readFile(ackPath, 'utf8');
+      const raw = await readFile(ackPath, 'utf8');
+      filePayloads = [{ id: `legacy:${ackPath}`, ...parseAckPayload(raw) }];
     } catch {
-      return { installed: null, applied: null, survived: null, frame: null, found: null, error: null, unreadable: true };
+      fileUnreadable = true;
     }
-    return { ...parseAckPayload(raw), unreadable: false };
   }
+  const fileEvidence = filePayloads.length > 0;
 
-  let entries;
-  try {
-    entries = await readdir(ackPath);
-  } catch {
-    return { installed: null, applied: null, survived: null, frame: null, found: null, error: null, unreadable: true };
+  const merged = dedupeById([...filePayloads, ...stdoutPayloads]);
+
+  if (merged.length === 0) {
+    return fileUnreadable
+      ? { installed: null, applied: null, survived: null, frame: null, found: null, error: null, unreadable: true, stdoutOnly: false }
+      : { installed: false, applied: null, survived: null, frame: null, found: null, error: null, unreadable: false, stdoutOnly: false };
   }
-  const payloads = [];
-  let survivedPayload = null;
-  let anyFileUnreadable = false;
-  for (const entry of entries) {
-    let raw;
-    try {
-      raw = await readFile(join(ackPath, entry), 'utf8');
-    } catch {
-      anyFileUnreadable = true;
-      continue;
-    }
-    const parsed = parseAckPayload(raw);
-    payloads.push(parsed);
-    if (entry === MUTATION_SURVIVED_FILE) survivedPayload = parsed;
-  }
-  if (payloads.length === 0) {
-    return anyFileUnreadable
-      ? { installed: null, applied: null, survived: null, frame: null, found: null, error: null, unreadable: true }
-      : { installed: false, applied: null, survived: null, frame: null, found: null, error: null, unreadable: false };
-  }
-  const confirmedInstalled = payloads.filter((p) => p.installed === true);
+  const confirmedInstalled = merged.filter((p) => p.installed === true);
   if (confirmedInstalled.length === 0) {
-    return { installed: null, applied: null, survived: null, frame: null, found: null, error: null, unreadable: false };
+    return { installed: null, applied: null, survived: null, frame: null, found: null, error: null, unreadable: false, stdoutOnly: false };
   }
   const applied = pickBoolean(confirmedInstalled, 'applied');
   // `survived` describes an evolving state, not an independent fact each
   // writer contributes the way `applied`/`found` do - a stale "still true"
   // reading must never outrank a later, genuinely observed revert, and a
   // later correction (an async re-parent healing itself) must never be
-  // discarded either. src/inject/playwright.js keeps exactly one file
+  // discarded either.
+  //
+  // On the file channel, src/inject/playwright.js keeps exactly one file
   // (`MUTATION_SURVIVED_FILE`) that gets overwritten on every update, so
   // whichever report landed most recently is read back here as-is - only
   // recency decides, never a fixed true/false priority (audit Fix 1 and
-  // Fix 5). Falls back to the old cross-file combination only when no such
-  // file exists at all (for example an ack written by hand, or a version of
-  // the wrapper that predates this file).
-  const survived = survivedPayload?.installed === true ? survivedPayload.survived : pickBoolean(confirmedInstalled, 'survived');
+  // Fix 5). When no such file exists at all - most importantly, the exact
+  // scenario issue #21 addresses, where the ack DIRECTORY is not visible
+  // from here at all - the stdout channel has no "overwritten file" to
+  // read, but it does not need one: markers appear on stdout in the order
+  // they were printed, so the LAST mutation marker that reported a
+  // definitive `survived` value plays the identical role recency-wise,
+  // without needing its own dedicated marker or a second write. Only when
+  // NEITHER of those exists does this fall back to the old cross-payload
+  // combination (for example an ack written by hand, or a version of the
+  // wrapper that predates this file).
+  let survived;
+  if (survivedFilePayload?.installed === true) {
+    survived = survivedFilePayload.survived;
+  } else {
+    const lastStdoutSurvived = [...stdoutPayloads].reverse().find((p) => p.installed === true && (p.survived === true || p.survived === false));
+    survived = lastStdoutSurvived ? lastStdoutSurvived.survived : pickBoolean(confirmedInstalled, 'survived');
+  }
   const found = pickBoolean(confirmedInstalled, 'found');
   const framedByApplied = confirmedInstalled.find((p) => p.applied === true && typeof p.frame === 'string');
   const framedByAny = confirmedInstalled.find((p) => typeof p.frame === 'string');
   const frame = (framedByApplied ?? framedByAny)?.frame ?? null;
   const errored = confirmedInstalled.find((p) => typeof p.error === 'string');
   const error = errored?.error ?? null;
-  return { installed: true, applied, survived, frame, found, error, unreadable: false };
+  return {
+    installed: true,
+    applied,
+    survived,
+    frame,
+    found,
+    error,
+    unreadable: false,
+    stdoutOnly: !fileEvidence && stdoutEvidence,
+  };
 }

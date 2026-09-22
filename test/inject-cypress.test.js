@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installTemporal, TEMPORAL_ACK_TASK } from '../src/inject/cypress.js';
 import { registerTemporalTask } from '../src/inject/cypress-node.js';
+import { captureStdout } from './helpers/capture-stdout.js';
 
 async function readAcks(ackDir) {
   if (!existsSync(ackDir)) return [];
@@ -75,6 +76,34 @@ test('registerTemporalTask writes the ack file the browser-side hook hands it', 
     const acks = await readAcks(ackDir);
     assert.equal(acks.length, 1);
     assert.deepEqual(acks[0], { installed: true, count: 1, ruleLive: true });
+  } finally {
+    delete process.env.FLAKEPROOF_TEMPORAL_ACK;
+    await rm(ackDir, { recursive: true, force: true });
+  }
+});
+
+// Issue #21: registerTemporalTask's handler calls the shared
+// writeTemporalAck (src/inject/shared/ack.js), which now also emits a
+// stdout marker - the ONE code path every non-Playwright temporal adapter
+// (Puppeteer, Selenium, and this Cypress task handler) shares, so this one
+// test covers the shared mechanism from the Cypress side specifically.
+test('registerTemporalTask also acknowledges as a stdout marker, with the same id the file uses', async () => {
+  const ackDir = await mkdtemp(join(tmpdir(), 'fp-cy-ack-'));
+  process.env.FLAKEPROOF_TEMPORAL_ACK = ackDir;
+  try {
+    let handler;
+    registerTemporalTask((event, handlers) => {
+      handler = handlers[TEMPORAL_ACK_TASK];
+    });
+    const { markers } = await captureStdout(() => handler({ count: 4, ruleLive: true }));
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].kind, 'temporal');
+    assert.deepEqual(
+      { installed: markers[0].installed, count: markers[0].count, ruleLive: markers[0].ruleLive },
+      { installed: true, count: 4, ruleLive: true },
+    );
+    const [fileEntry] = await readdir(ackDir);
+    assert.equal(markers[0].id, fileEntry.replace(/\.json$/, ''), 'the marker and the file must share one id');
   } finally {
     delete process.env.FLAKEPROOF_TEMPORAL_ACK;
     await rm(ackDir, { recursive: true, force: true });
