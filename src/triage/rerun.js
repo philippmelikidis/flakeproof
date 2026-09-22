@@ -44,6 +44,19 @@ function looksLikeBrokenCommand(code, stderr) {
 export async function rerunStats(command, runs = 3, { env = {} } = {}) {
   const exitCodes = [];
   const broken = [];
+  // Since issue #21: the inject wrapper acknowledges every injection as a
+  // marker line on stdout, in addition to the ack-directory file, because
+  // stdout crosses a container/remote-runner boundary the ack directory
+  // cannot (flakeproof is the one spawning `command`, so it always sees
+  // what the child prints, wherever the child actually ran). Collecting
+  // stdout here - across every run in this call, concatenated in arrival
+  // order - is what lets src/triage/temporal-probe.js recover those markers
+  // even when the ack directory it also asks for turns out to be
+  // unreadable from this process. This is purely additive: every field this
+  // function already returned is unchanged, and nothing before this change
+  // read stdout at all (stdio was `['ignore', 'ignore', 'pipe']`, i.e.
+  // stdout was discarded), so no existing caller's behavior changes.
+  let stdout = '';
   for (let i = 0; i < runs; i += 1) {
     const { code, stderr } = await new Promise((resolve) => {
       // A user who exported FLAKEPROOF_TEMPORAL_* (or FLAKEPROOF_MUTATION_*,
@@ -56,7 +69,8 @@ export async function rerunStats(command, runs = 3, { env = {} } = {}) {
         if (!(key in env)) delete childEnv[key];
       }
       let stderr = '';
-      const child = spawn(command, { shell: true, stdio: ['ignore', 'ignore', 'pipe'], env: childEnv });
+      const child = spawn(command, { shell: true, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv });
+      child.stdout.on('data', (d) => { stdout += d; });
       child.stderr.on('data', (d) => { stderr += d; });
       child.on('error', () => resolve({ code: -1, stderr }));
       child.on('close', (c) => resolve({ code: c ?? -1, stderr }));
@@ -66,5 +80,5 @@ export async function rerunStats(command, runs = 3, { env = {} } = {}) {
   }
   const failures = exitCodes.filter((c) => c !== 0).length;
   const commandBroken = broken.length > 0 && broken.every(Boolean);
-  return { runs, failures, exitCodes, nondeterministic: failures > 0 && failures < runs, commandBroken };
+  return { runs, failures, exitCodes, nondeterministic: failures > 0 && failures < runs, commandBroken, stdout };
 }
