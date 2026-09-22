@@ -145,8 +145,8 @@ runs:
       # never also FLAKEPROOF_WORKDIR.
       working-directory: ${{ inputs.working-directory }}
       env:
-        FLAKEPROOF_SUMMARY_PATH: ${{ github.action_path }}/flakeproof-summary.md
-        FLAKEPROOF_HTML_PATH: ${{ github.action_path }}/flakeproof-report.html
+        FLAKEPROOF_SUMMARY_PATH: ${{ runner.temp }}/flakeproof-summary.md
+        FLAKEPROOF_HTML_PATH: ${{ runner.temp }}/flakeproof-report.html
         INPUT_TEST_COMMAND: ${{ inputs.test-command }}
         INPUT_APP_URL: ${{ inputs.app-url }}
         INPUT_RESULTS_PATH: ${{ inputs.results-path }}
@@ -177,15 +177,19 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.artifact-name }}
-        path: ${{ github.action_path }}/flakeproof-report.html
+        path: ${{ runner.temp }}/flakeproof-report.html
         if-no-files-found: warn
 
     - name: Comment on pull request
-      if: inputs.comment == 'true'
+      # always(), so a failed artifact upload cannot swallow the verdict:
+      # the comment is what the gate exists to produce, the artifact is a
+      # convenience. Still gated on the triage step having succeeded, since
+      # without it there is no summary to post and nothing honest to say.
+      if: always() && inputs.comment == 'true' && steps.run.outcome == 'success'
       shell: bash
       env:
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
-        FLAKEPROOF_SUMMARY_PATH: ${{ github.action_path }}/flakeproof-summary.md
+        FLAKEPROOF_SUMMARY_PATH: ${{ runner.temp }}/flakeproof-summary.md
         FLAKEPROOF_BLIND: ${{ steps.run.outputs.blind }}
         FLAKEPROOF_FAILURES: ${{ steps.run.outputs.failures }}
         FLAKEPROOF_VERDICT_COUNTS: ${{ steps.run.outputs.verdict-counts }}
