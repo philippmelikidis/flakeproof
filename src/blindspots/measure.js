@@ -87,7 +87,11 @@ async function runAndRead(cmd, { cwd, reader, resultsPath, env } = {}) {
   // never actually ran its assertions must never be silently scored as a
   // green pass (Fix 4 in the review).
   const reporterMismatch = !unreadable && run.exitCode !== 0 && failures.length === 0;
-  return { exitCode: run.exitCode, failures, unreadable, reporterMismatch };
+  // `run.stdout` is what lets the caller recover a mutation ack marker
+  // (issue #21) when FLAKEPROOF_MUTATION_ACK's directory is not visible
+  // from this process - runTests already captures it, this just threads it
+  // through.
+  return { exitCode: run.exitCode, failures, unreadable, reporterMismatch, stdout: run.stdout };
 }
 
 // Every mutation that genuinely applied is excluded from the score's
@@ -388,6 +392,12 @@ export async function measureBlindspots(opts) {
   try {
     const records = [];
     const skipped = [];
+    // Issue #21: `true` once at least one round's proof of installation came
+    // exclusively from a stdout marker, never from a file in the ack
+    // directory - the suite most likely ran somewhere this process cannot
+    // see the filesystem of. Tracked across the whole measurement so the
+    // final notes can say so once, rather than once per round.
+    let sawStdoutOnly = false;
     for (let i = 0; i < targets.length; i += 1) {
       const { selector, mutation } = targets[i];
       if (!canAfford(runsPerRound)) {
@@ -410,7 +420,8 @@ export async function measureBlindspots(opts) {
           },
         });
         used += 1;
-        const ack = await readMutationAck(ackPath);
+        const ack = await readMutationAck(ackPath, result.stdout);
+        if (ack.stdoutOnly) sawStdoutOnly = true;
         if (ack.installed !== true) {
           // The wrapper never acknowledged this run at all: either it is not
           // installed in the suite, or the ack could not be read. Either way
@@ -478,6 +489,13 @@ export async function measureBlindspots(opts) {
 
     const counts = summarize(records);
     const notes = [];
+    if (sawStdoutOnly) {
+      notes.push(
+        'at least one acknowledgment reached flakeproof only through stdout, never through the ack directory on ' +
+          'disk; the suite most likely ran somewhere this process cannot see the filesystem of (a container or a ' +
+          'remote runner) - the measurement above is still valid',
+      );
+    }
     if (skipped.length) {
       notes.push(
         `the run budget (${budget}) was reached; ${skipped.length} of ${targets.length} experiment(s) were skipped: ` +
